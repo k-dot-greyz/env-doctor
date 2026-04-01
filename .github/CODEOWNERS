@@ -1,0 +1,5 @@
+# Default code owners — k-dot-greyz public repository defaults
+* @k-dot-greyz
+
+# GitHub metadata and automation
+.github/ @k-dot-greyz

@@ -517,6 +517,17 @@ phase4_creds() {
     fi
   fi
 
+  # Global git email can trigger GH007 on newly created repositories.
+  local global_git_email
+  global_git_email="$(git config --global --get user.email 2>/dev/null || true)"
+  if [[ -z "$global_git_email" ]]; then
+    _warn "git global email" "not set (recommend GitHub noreply to avoid GH007 on new repos)"
+  elif [[ "$global_git_email" == *"noreply.github.com" ]]; then
+    _pass "git global email" "$global_git_email"
+  else
+    _warn "git global email" "$global_git_email (real address may trigger GH007 on new repos)"
+  fi
+
   # Docker daemon
   if command -v docker &>/dev/null; then
     if timeout 3 docker info &>/dev/null 2>&1; then

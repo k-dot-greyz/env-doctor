@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# env-doctor.sh — Environment discovery and progressive init for dev-master
-# Targets: vanilla VSCode, Linux (bash), macOS (zsh), WSL
-# Zero external deps on discovery pass (pure bash/zsh)
+# env-doctor.sh — Environment discovery and progressive init for any git repo.
+# Extra heuristics (submodules, dex paths, Agent RAM) activate in dev-master / zenOS-style trees
+# via .env-doctor.conf or auto-detected profile. Targets: VSCode, Linux (bash), macOS (zsh), WSL.
+# Zero external deps on discovery pass (pure bash/zsh) except optional python3 for LM Studio model counts.
 #
 # ToC:
 #   Phase 1  Shell & OS Discovery (phase1_shell_os)
@@ -12,51 +13,46 @@
 #   Summary  (summary)
 #
 # Usage:
-#   bash dex/04-scripts/env-doctor.sh                    # discovery only (read-only)
-#   bash dex/04-scripts/env-doctor.sh --init              # progressive init (tier 1)
-#   bash dex/04-scripts/env-doctor.sh --init --tier 0     # venv + core deps only
-#   bash dex/04-scripts/env-doctor.sh --init --tier 2     # full dev tooling + all submodules
-#   bash dex/04-scripts/env-doctor.sh --json              # machine-readable output
-#   bash dex/04-scripts/env-doctor.sh --quiet             # exit code only
-#   bash dex/04-scripts/env-doctor.sh --init --dry-run    # show planned init actions
+#   bash env-doctor.sh                    # discovery (submodules skipped unless profile=dev-master)
+#   bash env-doctor.sh --with-submodules # include submodule scan + private URL warnings
+#   bash env-doctor.sh --init             # progressive init (tier 1)
+#   See --help for full options.
 
 set -euo pipefail
 
-# Resolve checkout root: superproject when this script lives in a git submodule (e.g. dex/09-repos/env-doctor).
-_resolve_repo_root() {
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if git -C "$script_dir" rev-parse --git-dir >/dev/null 2>&1; then
-    local sp
-    sp="$(git -C "$script_dir" rev-parse --show-superproject-working-tree 2>/dev/null || true)"
-    if [[ -n "$sp" ]]; then
-      printf '%s' "$sp"
-      return 0
-    fi
-    git -C "$script_dir" rev-parse --show-toplevel
-    return 0
-  fi
-  cd "$script_dir/../.." && pwd
-}
+_ENV_DOCTOR_SCRIPT="${BASH_SOURCE[0]}"
 
-# ── globals ──────────────────────────────────────────────────────────────────
-REPO_ROOT="$(_resolve_repo_root)"
+# ── globals (REPO_ROOT set in _bootstrap_env after argv) ─────────────────────
+REPO_ROOT=""
 DO_INIT=false
 INIT_TIER=1
 DRY_RUN=false
 OUTPUT_JSON=false
 QUIET=false
+SUBMODULES_ONLY=false
+USER_SUBMODULE_CHOICE=""
+PROFILE_OVERRIDE=""
+BRAND_OVERRIDE=""
+PROFILE=""
+WITH_SUBMODULES=false
+PROJECT_TYPES=()
+BRAND="${BRAND:-}"
+ENV_DOCTOR_CORE_REPOS="${ENV_DOCTOR_CORE_REPOS:-}"
+ENV_DOCTOR_PYTHON_DEPS="${ENV_DOCTOR_PYTHON_DEPS:-}"
+ENV_DOCTOR_SHOW_AGENT_RAM="${ENV_DOCTOR_SHOW_AGENT_RAM:-}"
+ENV_DOCTOR_HELP_URL="${ENV_DOCTOR_HELP_URL:-}"
 ISSUES=0
 WARNINGS=0
 JSON_LINES=()
+DOCTOR_NAME="env-doctor"
 
 # ── colors (disabled if not tty or --json/--quiet) ───────────────────────────
 _setup_colors() {
   if [[ -t 1 ]] && [[ "$OUTPUT_JSON" == false ]] && [[ "$QUIET" == false ]]; then
     R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[34m'
-    C=$'\033[36m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; RST=$'\033[0m'
+    DIM=$'\033[2m'; BOLD=$'\033[1m'; RST=$'\033[0m'
   else
-    R=''; G=''; Y=''; B=''; C=''; DIM=''; BOLD=''; RST=''
+    R=''; G=''; Y=''; B=''; DIM=''; BOLD=''; RST=''
   fi
 }
 
@@ -88,6 +84,142 @@ _head()  {
   [[ "$QUIET" == "true" ]] && return; printf "\n${BOLD}${B}── %s ──${RST}\n" "$1";
 }
 
+# Run with timeout when GNU coreutils timeout exists (stock macOS often lacks it).
+_timeout_cmd() {
+  local sec=$1
+  shift
+  if command -v timeout &>/dev/null; then
+    timeout "$sec" "$@"
+  else
+    "$@"
+  fi
+}
+
+# Value field from git config --get-regexp output (KEY<TAB>VALUE or KEY VALUE).
+_git_config_regexp_value() {
+  local line="$1"
+  if [[ "$line" == *$'\t'* ]]; then
+    printf '%s' "${line#*$'\t'}"
+  else
+    printf '%s' "$line" | sed 's/^[^[:space:]]*[[:space:]]\{1,\}//'
+  fi
+}
+
+# Submodule path from one line of git submodule status (paths may contain spaces).
+# Portable: avoid GNU sed -E character classes (BSD sed rejects ranges like \-+ in []).
+_submodule_status_path_from_line() {
+  local line="$1"
+  [[ -z "$line" ]] && return
+  line="${line:1}"
+  while [[ "$line" == [[:space:]]* ]]; do
+    line="${line:1}"
+  done
+  [[ -z "$line" ]] && return
+  local sha="${line%% *}"
+  line="${line#"$sha"}"
+  while [[ "$line" == [[:space:]]* ]]; do
+    line="${line:1}"
+  done
+  [[ -z "$line" ]] && return
+  printf '%s' "$line" | sed 's/ ([^)]*)$//'
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Helper: Private Submodule Detection
+# ═════════════════════════════════════════════════════════════════════════════
+_check_private_submodules() {
+  cd "$REPO_ROOT" 2>/dev/null || return 0
+
+  local private_submodules=()
+  local ssh_works=false
+
+  # URLs that look intentionally non-public (avoid flagging every personal GitHub org)
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local url
+    url="$(_git_config_regexp_value "$line")"
+
+    if echo "$url" | grep -qiE '(/private/|/internal/|@private\.|[.]private\.)'; then
+      private_submodules+=("$url")
+    fi
+  done < <(git config -f .gitmodules --get-regexp 'submodule\..*\.url' 2>/dev/null || true)
+
+  if [[ ${#private_submodules[@]} -eq 0 ]]; then
+    _pass "Private submodules" "none detected"
+    return
+  fi
+
+  # GitHub SSH prints success on stderr and exits 1 — detect auth from output, not exit code.
+  if ssh -T -o BatchMode=yes -o ConnectTimeout=5 git@github.com 2>&1 \
+      | grep -q "successfully authenticated"; then
+    ssh_works=true
+  fi
+
+  local ssh_info="(SSH key setup required)"
+  [[ "$ssh_works" == "true" ]] && ssh_info="(SSH key detected - may work)"
+
+  _warn "Private submodules" "${#private_submodules[@]} detected $ssh_info"
+  for sub in "${private_submodules[@]}"; do
+    _info "  Private repo" "$sub"
+  done
+
+  # Provide guidance
+  if [[ "$ssh_works" != "true" ]]; then
+    if [[ -n "$ENV_DOCTOR_HELP_URL" ]]; then
+      _info "Suggested fix" "Setup SSH key for GitHub (ssh-keygen -t ed25519; add public key to GitHub) or use a credential helper — $ENV_DOCTOR_HELP_URL"
+    else
+      _info "Suggested fix" "Setup SSH key for GitHub (ssh-keygen -t ed25519; add public key to GitHub) or use HTTPS with a token/credential helper"
+    fi
+  fi
+}
+
+# Resolve repo root: prefer git (works when script is copied anywhere), then legacy layout, then cwd.
+_resolve_repo_root() {
+  local sd
+  sd="$(cd "$(dirname "$_ENV_DOCTOR_SCRIPT")" && pwd)"
+  if REPO_ROOT="$(git -C "$sd" rev-parse --show-toplevel 2>/dev/null)"; then return; fi
+  if REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then return; fi
+  if [[ -d "$sd/../.." ]]; then
+    REPO_ROOT="$(cd "$sd/../.." && pwd)"
+  else
+    REPO_ROOT="$(pwd)"
+  fi
+}
+
+_detect_profile() {
+  if [[ -n "${PROFILE_OVERRIDE:-}" ]]; then
+    PROFILE="$PROFILE_OVERRIDE"
+    return
+  fi
+  if [[ -f "$REPO_ROOT/.gitmodules" ]] \
+     && [[ -d "$REPO_ROOT/dex" ]] \
+     && grep -q "dex/09-repos" "$REPO_ROOT/.gitmodules" 2>/dev/null; then
+    PROFILE="dev-master"
+  else
+    PROFILE="generic"
+  fi
+}
+
+_bootstrap_env() {
+  _resolve_repo_root
+  if [[ -f "$REPO_ROOT/.env-doctor.conf" ]]; then
+    # shellcheck disable=SC1090
+    source "$REPO_ROOT/.env-doctor.conf"
+  fi
+  DOCTOR_NAME="$(basename "$_ENV_DOCTOR_SCRIPT")"
+  [[ -n "${BRAND_OVERRIDE:-}" ]] && BRAND="$BRAND_OVERRIDE"
+  _detect_profile
+  if [[ "$USER_SUBMODULE_CHOICE" == with ]]; then
+    WITH_SUBMODULES=true
+  elif [[ "$USER_SUBMODULE_CHOICE" == skip ]]; then
+    WITH_SUBMODULES=false
+  elif [[ "$PROFILE" == dev-master ]]; then
+    WITH_SUBMODULES=true
+  else
+    WITH_SUBMODULES=false
+  fi
+}
+
 # ── arg parsing ──────────────────────────────────────────────────────────────
 # Expand combined short flags: -it2 → -i -t 2, -iqt0 → -i -q -t 0, etc.
 _expand_args=()
@@ -112,36 +244,50 @@ for _arg in "$@"; do
     _expand_args+=("$_arg")
   fi
 done
-# Empty "${arr[@]}" under set -u errors on some bash versions (e.g. macOS 3.2).
-if ((${#_expand_args[@]} > 0)); then
-  set -- "${_expand_args[@]}"
-else
+# With set -u, "${empty[@]}" can error on some Bash; guard zero-arg invocations.
+if [[ ${#_expand_args[@]} -eq 0 ]]; then
   set --
+else
+  set -- "${_expand_args[@]}"
 fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --init|-i)    DO_INIT=true; shift ;;
-    --tier|-t)    INIT_TIER="${2:?--tier/-t requires a number 0-3}"; shift 2 ;;
-    --dry-run|-n) DRY_RUN=true; shift ;;
-    --json|-j)    OUTPUT_JSON=true; shift ;;
-    --quiet|-q)   QUIET=true; shift ;;
+    --init|-i)      DO_INIT=true; shift ;;
+    --tier|-t)      INIT_TIER="${2:?--tier/-t requires a number 0-3}"; shift 2 ;;
+    --dry-run|-n)   DRY_RUN=true; shift ;;
+    --json|-j)      OUTPUT_JSON=true; shift ;;
+    --quiet|-q)     QUIET=true; shift ;;
+    --submodules)   SUBMODULES_ONLY=true; shift ;;
+    --with-submodules)  USER_SUBMODULE_CHOICE=with; shift ;;
+    --skip-submodules)  USER_SUBMODULE_CHOICE=skip; shift ;;
+    --profile)      PROFILE_OVERRIDE="${2:?--profile requires dev-master or generic}"; shift 2 ;;
+    --brand)        BRAND_OVERRIDE="${2:?--brand requires a string}"; shift 2 ;;
     --help|-h)
       cat <<'EOF'
-env-doctor.sh — Environment discovery & progressive init
+env-doctor — Environment discovery & progressive init
 
 Usage:
-  bash env-doctor.sh              # discovery only (read-only, no changes)
-  bash env-doctor.sh -i           # init tier 1 (venv + deps + core submodules)
+  bash env-doctor.sh              # discovery (read-only)
+  bash env-doctor.sh --with-submodules   # include submodule scan (default off in generic repos)
+  bash env-doctor.sh --skip-submodules   # force skip even in dev-master-style trees
+  bash env-doctor.sh -i           # init tier 1
   bash env-doctor.sh -it0         # init tier 0 (venv + core deps only)
-  bash env-doctor.sh -it2         # init tier 2 (full dev tooling + all submodules)
-  bash env-doctor.sh -it3         # init tier 3 (everything including Docker services)
-  bash env-doctor.sh -it2n        # tier 2 dry-run (show planned actions)
-  bash env-doctor.sh -j           # JSON output for CI/agents
-  bash env-doctor.sh -q           # exit code only (0=tier-0 OK)
+  bash env-doctor.sh -it2         # init tier 2 (full tooling + all submodules when enabled)
+  bash env-doctor.sh -it3         # init tier 3 (+ Docker services)
+  bash env-doctor.sh -it2n        # tier 2 dry-run
+  bash env-doctor.sh -j           # JSON for CI/agents
+  bash env-doctor.sh -q           # exit code only
+  bash env-doctor.sh --submodules # private submodule URL check only (SSH hint)
+  bash env-doctor.sh --profile generic
+  bash env-doctor.sh --brand myrepo
+
+Optional repo config (sourced if present): .env-doctor.conf in repo root
+  BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_SHOW_AGENT_RAM, ENV_DOCTOR_HELP_URL
 
 Long forms:
-  --init, --tier N, --dry-run, --json, --quiet, --help
+  --init, --tier N, --dry-run, --json, --quiet, --submodules,
+  --with-submodules, --skip-submodules, --profile, --brand, --help
 
 Short flags:
   -i  init          -t N  tier (0-3)     -n  dry-run
@@ -150,16 +296,20 @@ Short flags:
 Combined:  -it2 = --init --tier 2    -iqt0 = --init --quiet --tier 0
 
 Tiers:
-  0  Python venv + core pip deps
-  1  + Tier 0/1 submodules, dev extras, pre-commit hooks
-  2  + All submodules, ripgrep, dev tools
-  3  + Docker services, optional MCP deps
+  0  Python venv + install from pyproject when present
+  1  + targeted submodule init (when .env-doctor.conf / scan enabled), dev extras, pre-commit
+  2  + all submodules (git submodule update --init), dev tools
+  3  + Docker services
+
+Private repos over HTTPS/SSH:
+  If submodule init fails, ensure SSH works (ssh -T git@github.com) or use HTTPS with a token.
 EOF
       exit 0 ;;
     *) echo "Unknown arg: $1 (try --help)"; exit 1 ;;
   esac
 done
 
+_bootstrap_env
 _setup_colors
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -251,73 +401,152 @@ _check_alias_shadows() {
   fi
 }
 
+_project_has() {
+  local want="$1" i
+  # Avoid "${PROJECT_TYPES[@]}" under set -u when the array is empty (some Bash builds error).
+  for (( i = 0; i < ${#PROJECT_TYPES[@]}; i++ )); do
+    [[ "${PROJECT_TYPES[$i]}" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+_detect_project_types() {
+  PROJECT_TYPES=()
+  cd "$REPO_ROOT" 2>/dev/null || return 0
+  if [[ -f pyproject.toml ]] || [[ -f requirements.txt ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
+    PROJECT_TYPES+=("python")
+  fi
+  [[ -f package.json ]] && PROJECT_TYPES+=("node")
+  [[ -f Cargo.toml ]] && PROJECT_TYPES+=("rust")
+  [[ -f go.mod ]] && PROJECT_TYPES+=("go")
+  return 0
+}
+
+_check_zen_teaser() {
+  if command -v zen &>/dev/null; then
+    local zv
+    zv="$(zen --version 2>&1 | head -1)"
+    _pass "zen" "$zv"
+  else
+    _info "zen" "not installed"
+  fi
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Core Tooling Discovery
 # ═════════════════════════════════════════════════════════════════════════════
 phase2_tooling() {
   _head "Phase 2: Tooling Discovery"
 
+  _detect_project_types
+  if [[ ${#PROJECT_TYPES[@]} -eq 0 ]]; then
+    _info "Project manifests" "none at repo root (pyproject.toml, package.json, Cargo.toml, go.mod)"
+  else
+    _info "Project types" "${PROJECT_TYPES[*]}"
+  fi
+
   # ── Tier 0: Required ──
   _info "Tier 0" "Required tools"
   _check_tool "git"       "git --version"        ""
-  _check_python
-  _check_pkg_manager
 
-  # ── Tier 1: Recommended ──
+  if _project_has python; then
+    _check_python
+    _check_pkg_manager
+  else
+    _info "python scan" "skipped (no Python manifest at repo root)"
+    if command -v python3 &>/dev/null; then
+      BEST_PYTHON="python3"
+    elif command -v python &>/dev/null; then
+      BEST_PYTHON="python"
+    else
+      BEST_PYTHON=""
+    fi
+    PKG_MANAGER="${PKG_MANAGER:-}"
+  fi
+
+  # ── Tier 1: Recommended (cross-language) ──
   _info "Tier 1" "Recommended tools"
-  _check_tool "node"      "node --version"       ""
-  _check_tool "npm"       "npm --version"        ""
   _check_tool "docker"    "docker --version"     ""
   _check_tool "gh"        "gh --version"         "GitHub CLI"
   _check_tool "pre-commit" "pre-commit --version" ""
 
+  if _project_has node; then
+    _info "Node project" "package.json detected"
+    _check_tool "node"      "node --version"       ""
+    _check_tool "npm"       "npm --version"        ""
+    if [[ -f "$REPO_ROOT/package.json" ]] && [[ ! -d "$REPO_ROOT/node_modules" ]]; then
+      _warn "node_modules" "missing (run npm install)"
+    fi
+  fi
+
+  if _project_has rust; then
+    _info "Rust project" "Cargo.toml detected"
+    _check_tool "cargo"   "cargo --version"      ""
+    if [[ -f "$REPO_ROOT/Cargo.toml" ]] && [[ ! -f "$REPO_ROOT/Cargo.lock" ]]; then
+      _info "Cargo.lock" "missing (run cargo generate-lockfile or cargo build)"
+    fi
+  fi
+
+  if _project_has go; then
+    _info "Go project" "go.mod detected"
+    _check_tool "go"      "go version"           ""
+  fi
+
   # ── Tier 2: Dev extras ──
   _info "Tier 2" "Dev extras"
   _check_tool "rg"        "rg --version"         "ripgrep"
-  _check_tool "black"     "black --version"      ""
-  _check_tool "ruff"      "ruff --version"       ""
-  _check_tool "mypy"      "mypy --version"       ""
-  _check_tool "pytest"    "pytest --version"     ""
-  _check_tool "mkdocs"    "mkdocs --version"     ""
-
-  # ── Tier 3: Project-specific ──
-  _info "Tier 3" "Project-specific"
-  _check_tool "zen"       "zen --version"        "zen CLI"
+  if _project_has python; then
+    _check_tool "black"     "black --version"      ""
+    _check_tool "ruff"      "ruff --version"       ""
+    _check_tool "mypy"      "mypy --version"       ""
+    _check_tool "pytest"    "pytest --version"     ""
+    _check_tool "mkdocs"    "mkdocs --version"     ""
+  fi
   _check_tool "shellcheck" "shellcheck --version" ""
   _check_tool "yamllint"  "yamllint --version"   ""
 
-  # ── Venv ──
-  _head "Phase 2b: Python Environment"
-  if [[ -d "$REPO_ROOT/.venv" ]]; then
-    _pass "Virtualenv" ".venv exists"
-  elif [[ -d "$REPO_ROOT/venv" ]]; then
-    _pass "Virtualenv" "venv exists"
-  else
-    _warn "Virtualenv" "no .venv or venv directory found"
-  fi
+  # ── Tier 3: Teaser + shell tooling ──
+  _info "Tier 3" "Project-specific"
+  _check_zen_teaser
 
-  local python_to_use="python3"
-  if [[ -f "$REPO_ROOT/.venv/bin/python" ]]; then
-    python_to_use="$REPO_ROOT/.venv/bin/python"
-  elif [[ -f "$REPO_ROOT/venv/bin/python" ]]; then
-    python_to_use="$REPO_ROOT/venv/bin/python"
-  fi
-
-  local deps_ok=true
-  for pkg in click rich yaml pydantic aiohttp; do
-    # Note: pyyaml is imported as 'yaml'
-    local import_name="$pkg"
-    [[ "$pkg" == "pyyaml" ]] && import_name="yaml"
-
-    if ! "$python_to_use" -c "import $import_name" 2>/dev/null; then
-      deps_ok=false
-      break
+  # ── Python environment + optional deps (Python projects only) ──
+  if _project_has python; then
+    _head "Phase 2b: Python Environment"
+    if [[ -d "$REPO_ROOT/.venv" ]]; then
+      _pass "Virtualenv" ".venv exists"
+    elif [[ -d "$REPO_ROOT/venv" ]]; then
+      _pass "Virtualenv" "venv exists"
+    else
+      _warn "Virtualenv" "no .venv or venv directory found"
     fi
-  done
-  if [[ "$deps_ok" == true ]]; then
-    _pass "Core Python deps" "click, rich, pyyaml, pydantic, aiohttp"
-  else
-    _warn "Core Python deps" "not all importable (need venv + pip install)"
+
+    local python_to_use="python3"
+    if [[ -f "$REPO_ROOT/.venv/bin/python" ]]; then
+      python_to_use="$REPO_ROOT/.venv/bin/python"
+    elif [[ -f "$REPO_ROOT/venv/bin/python" ]]; then
+      python_to_use="$REPO_ROOT/venv/bin/python"
+    fi
+
+    if [[ -n "${ENV_DOCTOR_PYTHON_DEPS:-}" ]]; then
+      local deps_ok=true dep import_name
+      for dep in ${ENV_DOCTOR_PYTHON_DEPS//,/ }; do
+        dep="$(echo "$dep" | tr -d '[:space:]')"
+        [[ -z "$dep" ]] && continue
+        import_name="$dep"
+        [[ "$dep" == "pyyaml" ]] && import_name="yaml"
+        if ! "$python_to_use" -c "import $import_name" 2>/dev/null; then
+          deps_ok=false
+          break
+        fi
+      done
+      if [[ "$deps_ok" == true ]]; then
+        _pass "Python deps (ENV_DOCTOR_PYTHON_DEPS)" "all importable"
+      else
+        _warn "Python deps (ENV_DOCTOR_PYTHON_DEPS)" "not all importable (venv + pip install)"
+      fi
+    else
+      _info "Python deps" "ENV_DOCTOR_PYTHON_DEPS not set — skipping import check"
+    fi
   fi
 }
 
@@ -362,7 +591,9 @@ _check_python() {
     fi
   done
   if [[ -n "$best" ]]; then
-    _warn "python ($best)" "$best_ver (3.10+ recommended, pyproject.toml says >=3.8)"
+    local py_hint="3.10+ recommended"
+    [[ -f "$REPO_ROOT/pyproject.toml" ]] && py_hint="3.10+ recommended (see pyproject.toml)"
+    _warn "python ($best)" "$best_ver ($py_hint)"
     BEST_PYTHON="$best"
   else
     _fail "python" "not found"
@@ -381,7 +612,13 @@ _check_pkg_manager() {
       break
     fi
   done
-  [[ -z "$found" ]] && _fail "pkg manager" "none of uv/poetry/pip found"
+  if [[ -z "$found" ]]; then
+    if _project_has python; then
+      _fail "pkg manager" "none of uv/poetry/pip found"
+    else
+      _info "pkg manager" "none found (optional without a Python manifest)"
+    fi
+  fi
   PKG_MANAGER="${found:-}"
 }
 
@@ -409,68 +646,76 @@ phase3_git() {
     _warn "Working tree" "$dirty+ uncommitted changes"
   fi
 
-  # Submodule classification
-  local total=0 initialized=0 uninitialized=0 modified=0
-  local tier0_subs=() tier1_subs=() tier2_subs=() tier3_subs=()
-  local core_repos="zenOS|neuro-spicy-devkit|Prompt_OS"
+  if [[ "$WITH_SUBMODULES" != true ]]; then
+    _info "Submodules" "scan skipped (--with-submodules to include)"
+  else
+    # Submodule classification
+    local total=0 initialized=0 uninitialized=0 modified=0
+    local tier0_subs=() tier1_subs=() tier2_subs=() tier3_subs=()
+    local core_repos="${ENV_DOCTOR_CORE_REPOS:-}"
 
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    total=$((total+1))
-    local prefix="${line:0:1}"
-    local path
-    path="$(echo "$line" | awk '{print $2}')"
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      total=$((total+1))
+      local prefix="${line:0:1}"
+      local path
+      path="$(_submodule_status_path_from_line "$line")"
 
-    case "$prefix" in
-      '-') uninitialized=$((uninitialized+1)) ;;
-      '+') modified=$((modified+1)) ;;
-      ' ') initialized=$((initialized+1)) ;;
-    esac
+      case "$prefix" in
+        '-') uninitialized=$((uninitialized+1)) ;;
+        '+') modified=$((modified+1)) ;;
+        ' ') initialized=$((initialized+1)) ;;
+      esac
 
-    if echo "$path" | grep -qE "($core_repos)$"; then
-      tier0_subs+=("$path")
-    elif [[ "$path" == dex/09-repos/* ]]; then
-      tier1_subs+=("$path")
-    elif [[ "$path" == dex/06-tools/* ]]; then
-      tier2_subs+=("$path")
+      if [[ -n "$core_repos" ]] && echo "$path" | grep -qE "(${core_repos})$"; then
+        tier0_subs+=("$path")
+      elif [[ "$PROFILE" == dev-master ]] && [[ "$path" == dex/09-repos/* ]]; then
+        tier1_subs+=("$path")
+      elif [[ "$PROFILE" == dev-master ]] && [[ "$path" == dex/06-tools/* ]]; then
+        tier2_subs+=("$path")
+      else
+        tier3_subs+=("$path")
+      fi
+    done < <(git submodule status 2>/dev/null || true)
+
+    _pass "Submodules total" "$total"
+    _info "  initialized"    "$initialized"
+    _info "  uninitialized"  "$uninitialized"
+    if [[ "$modified" -gt 0 ]]; then
+      _warn "  modified" "$modified"
     else
-      tier3_subs+=("$path")
+      _info "  modified" "$modified"
     fi
-  done < <(git submodule status 2>/dev/null || true)
+    _info "Tier 0 (core)"    "${#tier0_subs[@]} submodules"
+    _info "Tier 1 (repos)"   "${#tier1_subs[@]} submodules"
+    _info "Tier 2 (tools)"   "${#tier2_subs[@]} submodules"
+    _info "Tier 3 (other)"   "${#tier3_subs[@]} submodules"
 
-  _pass "Submodules total" "$total"
-  _info "  initialized"    "$initialized"
-  _info "  uninitialized"  "$uninitialized"
-  if [[ "$modified" -gt 0 ]]; then
-    _warn "  modified" "$modified"
-  else
-    _info "  modified" "$modified"
+    _check_private_submodules
   fi
-  _info "Tier 0 (core)"    "${#tier0_subs[@]} submodules"
-  _info "Tier 1 (repos)"   "${#tier1_subs[@]} submodules"
-  _info "Tier 2 (tools)"   "${#tier2_subs[@]} submodules"
-  _info "Tier 3 (other)"   "${#tier3_subs[@]} submodules"
 
-  # Orphan check
-  local orphans=0
-  local gitmod_paths
-  gitmod_paths="$(grep 'path = ' .gitmodules 2>/dev/null | sed 's/.*path = //' || true)"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    local p
-    # Path follows the first TAB (mode sha stage are space-separated); do not use
-    # awk $4 — submodule paths can contain spaces (e.g. ".../ai assistant trial/...").
-    p="${line#*$'\t'}"
-    [[ -z "$p" || "$p" == "$line" ]] && continue
-    if ! echo "$gitmod_paths" | grep -qFx "$p"; then
-      orphans=$((orphans+1))
+  # Orphan check (only meaningful when .gitmodules exists)
+  if [[ -f .gitmodules ]]; then
+    local orphans=0
+    local gitmod_paths
+    gitmod_paths="$(grep 'path = ' .gitmodules 2>/dev/null | sed 's/.*path = //' || true)"
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      local p
+      p="${line#*$'\t'}"
+      [[ -z "$p" || "$p" == "$line" ]] && continue
+      if ! echo "$gitmod_paths" | grep -qFx "$p"; then
+        orphans=$((orphans+1))
+      fi
+    done < <(git ls-files -s 2>/dev/null | grep "^160000" || true)
+
+    if [[ "$orphans" -gt 0 ]]; then
+      _fail "Orphan gitlinks" "$orphans (in index but not in .gitmodules)"
+    else
+      _pass "Orphan gitlinks" "none"
     fi
-  done < <(git ls-files -s 2>/dev/null | grep "^160000" || true)
-
-  if [[ "$orphans" -gt 0 ]]; then
-    _fail "Orphan gitlinks" "$orphans (in index but not in .gitmodules)"
   else
-    _pass "Orphan gitlinks" "none"
+    _pass "Orphan gitlinks" "no .gitmodules — skipped"
   fi
 }
 
@@ -505,7 +750,11 @@ phase4_creds() {
       _warn ".env placeholders" "contains mock/placeholder values"
     fi
   else
-    _warn ".env" "missing (run: cp env.example .env)"
+    if [[ -f env.example ]]; then
+      _warn ".env" "missing (run: cp env.example .env)"
+    else
+      _info ".env" "missing (no env.example in repo — skipped)"
+    fi
   fi
 
   # gh auth
@@ -517,20 +766,9 @@ phase4_creds() {
     fi
   fi
 
-  # Global git email can trigger GH007 on newly created repositories.
-  local global_git_email
-  global_git_email="$(git config --global --get user.email 2>/dev/null || true)"
-  if [[ -z "$global_git_email" ]]; then
-    _warn "git global email" "not set (recommend GitHub noreply to avoid GH007 on new repos)"
-  elif [[ "$global_git_email" == *"noreply.github.com" ]]; then
-    _pass "git global email" "$global_git_email"
-  else
-    _warn "git global email" "$global_git_email (real address may trigger GH007 on new repos)"
-  fi
-
   # Docker daemon
   if command -v docker &>/dev/null; then
-    if timeout 3 docker info &>/dev/null 2>&1; then
+    if _timeout_cmd 3 docker info &>/dev/null 2>&1; then
       _pass "Docker daemon" "reachable"
     else
       _warn "Docker daemon" "not reachable (start Docker Desktop or check socket)"
@@ -600,11 +838,13 @@ phase4b_local_ai() {
     fi
   fi
 
-  # Task notebooks directory (dex/10-tasks/)
-  if [[ -d "$REPO_ROOT/dex/10-tasks/active" ]]; then
-    _pass "Agent RAM" "dex/10-tasks/active/ exists"
-  else
-    _warn "Agent RAM" "dex/10-tasks/active/ missing — see dex/02-protocols/NOTEBOOK_WORKFLOW.md"
+  # Task notebooks (dev-master / explicit opt-in only)
+  if [[ "$PROFILE" == dev-master ]] || [[ "${ENV_DOCTOR_SHOW_AGENT_RAM:-}" == true ]]; then
+    if [[ -d "$REPO_ROOT/dex/10-tasks/active" ]]; then
+      _pass "Agent RAM" "dex/10-tasks/active/ exists"
+    else
+      _warn "Agent RAM" "dex/10-tasks/active/ missing"
+    fi
   fi
 }
 
@@ -624,6 +864,18 @@ phase5_init() {
     _info "Tier 0" "Python venv + core deps"
     if [[ -z "${BEST_PYTHON:-}" ]]; then
       _fail "Init aborted" "no Python found"
+      return 1
+    fi
+    if [[ -z "${PKG_MANAGER:-}" ]]; then
+      for mgr in uv poetry pip3 pip; do
+        if command -v "$mgr" &>/dev/null; then
+          PKG_MANAGER="$mgr"
+          break
+        fi
+      done
+    fi
+    if [[ -z "${PKG_MANAGER:-}" ]]; then
+      _fail "Init aborted" "no package manager (install pip/uv/poetry)"
       return 1
     fi
 
@@ -654,26 +906,78 @@ phase5_init() {
   if [[ "$INIT_TIER" -ge 1 ]]; then
     _info "Tier 1" "Core submodules + dev extras"
 
-    local core_paths
-    core_paths="$(git config -f .gitmodules --get-regexp 'submodule\..*\.path' | awk '{print $2}' | grep -E '(zenOS|neuro-spicy-devkit|Prompt_OS|Operation-Atlas|how-to-human)$' || true)"
+    if [[ "$WITH_SUBMODULES" != true ]]; then
+      _info "Tier 1 submodules" "skipped (--with-submodules to include submodule init)"
+    else
+      local -a core_paths=()
+      if [[ -n "${ENV_DOCTOR_CORE_REPOS:-}" ]]; then
+        while IFS= read -r cl; do
+          [[ -z "$cl" ]] && continue
+          local p
+          p="$(_git_config_regexp_value "$cl")"
+          echo "$p" | grep -qE "(${ENV_DOCTOR_CORE_REPOS})$" || continue
+          core_paths+=("$p")
+        done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
+      fi
+
+      if [[ "$DRY_RUN" == "true" ]]; then
+        for p in "${core_paths[@]}"; do
+          _info "Would run" "git submodule update --init $p"
+        done
+        local -a remaining_repos=()
+        while IFS= read -r cl; do
+          [[ -z "$cl" ]] && continue
+          local rp
+          rp="$(_git_config_regexp_value "$cl")"
+          [[ "$rp" == dex/09-repos/* ]] || continue
+          remaining_repos+=("$rp")
+        done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
+        for p in "${remaining_repos[@]}"; do
+          _info "Would run" "git submodule update --init $p"
+        done
+      else
+        for p in "${core_paths[@]}"; do
+          echo "  Init submodule: $p" >&2
+          if ! git submodule update --init "$p" 2>&1; then
+            local url
+            url="$(git config -f .gitmodules --get "submodule.${p}.url" 2>/dev/null || echo "")"
+            if echo "$url" | grep -qiE '(/private/|/internal/|@private\.|[.]private\.)'; then
+              echo "    ⚠️  Private submodule failed (credentials needed)" >&2
+              if [[ -n "${ENV_DOCTOR_HELP_URL:-}" ]]; then
+                echo "    See: $ENV_DOCTOR_HELP_URL" >&2
+              fi
+            fi
+          fi
+        done
+
+        local -a remaining_repos=()
+        while IFS= read -r cl; do
+          [[ -z "$cl" ]] && continue
+          local rp
+          rp="$(_git_config_regexp_value "$cl")"
+          [[ "$rp" == dex/09-repos/* ]] || continue
+          remaining_repos+=("$rp")
+        done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
+
+        for p in "${remaining_repos[@]}"; do
+          if ! git submodule update --init "$p" 2>&1; then
+            local url
+            url="$(git config -f .gitmodules --get "submodule.${p}.url" 2>/dev/null || echo "")"
+            if echo "$url" | grep -qiE '(/private/|/internal/|@private\.|[.]private\.)'; then
+              echo "    ⚠️  Private submodule failed (credentials needed)" >&2
+              if [[ -n "${ENV_DOCTOR_HELP_URL:-}" ]]; then
+                echo "    See: $ENV_DOCTOR_HELP_URL" >&2
+              fi
+            fi
+          fi
+        done
+      fi
+    fi
+
     if [[ "$DRY_RUN" == "true" ]]; then
-      for p in $core_paths; do
-        _info "Would run" "git submodule update --init $p"
-      done
       _info "Would run" "pip install -e .[dev] + pre-commit install"
       _pass "Tier 1 init" "planned (dry-run)"
     else
-      for p in $core_paths; do
-        echo "  Init submodule: $p" >&2
-        git submodule update --init "$p" 2>/dev/null || true
-      done
-
-      local remaining_repos
-      remaining_repos="$(git config -f .gitmodules --get-regexp 'submodule\..*\.path' | awk '{print $2}' | grep '^dex/09-repos/' || true)"
-      for p in $remaining_repos; do
-        git submodule update --init "$p" 2>/dev/null || true
-      done
-
       if [[ -d .venv ]]; then
         # shellcheck disable=SC1091
         source .venv/bin/activate
@@ -739,7 +1043,7 @@ phase5_init() {
         _info "Would run" "docker compose up -d"
       fi
       _pass "Tier 3 init" "planned (dry-run)"
-    elif timeout 3 docker info &>/dev/null 2>&1; then
+    elif _timeout_cmd 3 docker info &>/dev/null 2>&1; then
       if [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
         echo "  Starting docker-compose services..." >&2
         docker compose -f "$REPO_ROOT/docker-compose.yml" up -d 2>/dev/null || true
@@ -756,12 +1060,24 @@ phase5_init() {
 # ═════════════════════════════════════════════════════════════════════════════
 summary() {
   _head "Summary"
-  if [[ "$ISSUES" -eq 0 ]] && [[ "$WARNINGS" -eq 0 ]]; then
-    _pass "Status" "all checks passed"
-  elif [[ "$ISSUES" -eq 0 ]]; then
-    _warn "Status" "$WARNINGS warning(s), 0 failures"
+  # Do not use _pass/_warn/_fail for Status — they bump ISSUES/WARNINGS and skew JSON totals.
+  if [[ "$OUTPUT_JSON" == "true" ]]; then
+    # type "status" (not pass/warn/fail) so footer issues/warnings match row counts of fail/warn.
+    if [[ "$ISSUES" -eq 0 ]] && [[ "$WARNINGS" -eq 0 ]]; then
+      JSON_LINES+=("$(_jline "status" "Status" "all checks passed")")
+    elif [[ "$ISSUES" -eq 0 ]]; then
+      JSON_LINES+=("$(_jline "status" "Status" "${WARNINGS} warning(s), 0 failures")")
+    else
+      JSON_LINES+=("$(_jline "status" "Status" "${ISSUES} failure(s), ${WARNINGS} warning(s)")")
+    fi
   else
-    _fail "Status" "$ISSUES failure(s), $WARNINGS warning(s)"
+    if [[ "$ISSUES" -eq 0 ]] && [[ "$WARNINGS" -eq 0 ]]; then
+      [[ "$QUIET" != "true" ]] && printf "  ${G}[PASS]${RST}  %-28s %s\n" "Status" "all checks passed"
+    elif [[ "$ISSUES" -eq 0 ]]; then
+      [[ "$QUIET" != "true" ]] && printf "  ${Y}[WARN]${RST}  %-28s %s\n" "Status" "${WARNINGS} warning(s), 0 failures"
+    else
+      [[ "$QUIET" != "true" ]] && printf "  ${R}[FAIL]${RST}  %-28s %s\n" "Status" "${ISSUES} failure(s), ${WARNINGS} warning(s)"
+    fi
   fi
 
   if [[ "$OUTPUT_JSON" == "true" ]]; then
@@ -776,8 +1092,8 @@ summary() {
   fi
 
   if [[ "$DO_INIT" == false ]] && [[ "$QUIET" == false ]]; then
-    printf "\n${DIM}  To fix issues, run: ./env-doctor.sh --init${RST}\n"
-    printf "${DIM}  For full setup:     ./env-doctor.sh --init --tier 2${RST}\n\n"
+    printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
+    printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"
   fi
 }
 
@@ -786,8 +1102,14 @@ summary() {
 # ═════════════════════════════════════════════════════════════════════════════
 main() {
   if [[ "$QUIET" == false ]] && [[ "$OUTPUT_JSON" == false ]]; then
-    printf "${BOLD}env-doctor${RST} — dev-master environment check\n"
-    printf "${DIM}repo: %s${RST}\n" "$REPO_ROOT"
+    printf "${BOLD}%s${RST} — environment check\n" "${BRAND:-$DOCTOR_NAME}"
+    printf "${DIM}repo: %s  profile: %s  submodules: %s${RST}\n" "$REPO_ROOT" "$PROFILE" "$WITH_SUBMODULES"
+  fi
+
+  # Handle --submodules-only flag
+  if [[ "$SUBMODULES_ONLY" == "true" ]]; then
+    _check_private_submodules
+    return
   fi
 
   phase1_shell_os

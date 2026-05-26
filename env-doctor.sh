@@ -425,8 +425,12 @@ _detect_project_types() {
 _check_zen_teaser() {
   if command -v zen &>/dev/null; then
     local zv
-    zv="$(zen --version 2>&1 | head -1)"
-    _pass "zen" "$zv"
+    zv="$(zen --version 2>&1 | head -1 || true)"
+    if [[ -z "$zv" ]] || [[ "$zv" =~ "Traceback" ]] || [[ "$zv" =~ "Error" ]]; then
+      _warn "zen" "installed but broken: $zv"
+    else
+      _pass "zen" "$zv"
+    fi
   else
     _info "zen" "not installed"
   fi

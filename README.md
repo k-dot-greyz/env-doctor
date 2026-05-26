@@ -27,6 +27,15 @@ When vendored under [dev-master](https://github.com/k-dot-greyz/dev-master):
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — phases, JSON, profiles
 - [`docs/UX_AUDIT.md`](docs/UX_AUDIT.md) — reusability notes
 
+## Tests
+
+```bash
+bash tests/run.sh          # integration (no npm)
+npm install && npm test    # bash + Playwright UX/security specs
+```
+
+See [`docs/TEST_COVERAGE_DECISION_LOG.md`](docs/TEST_COVERAGE_DECISION_LOG.md).
+
 ## Develop upstream
 
 Edit `env-doctor.sh` here, push to `main`, then bump the submodule pointer in dev-master (see dev-master `dex/03-docs/guides/SUBMODULE_BUMP.md`).

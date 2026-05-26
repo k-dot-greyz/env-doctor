@@ -1,0 +1,12 @@
+{
+  "name": "env-doctor-tests",
+  "private": true,
+  "description": "UX and security regression tests for env-doctor CLI",
+  "scripts": {
+    "test:bash": "bash tests/run.sh",
+    "test": "npm run test:bash && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

@@ -534,6 +534,11 @@ phase2_tooling() {
         [[ -z "$dep" ]] && continue
         import_name="$dep"
         [[ "$dep" == "pyyaml" ]] && import_name="yaml"
+        if [[ ! "$import_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+          _warn "Python deps (ENV_DOCTOR_PYTHON_DEPS)" "skipped invalid import name: $dep"
+          deps_ok=false
+          break
+        fi
         if ! "$python_to_use" -c "import $import_name" 2>/dev/null; then
           deps_ok=false
           break

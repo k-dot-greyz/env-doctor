@@ -2,7 +2,20 @@
 
 Welcome to the `env-doctor` repository! We are excited to have you contribute.
 
-To ensure a clean, maintainable, and robust codebase, all contributions must strictly adhere to our development standards, repository boundaries, and architectural protocols.
+`env-doctor` is a **single-file Bash CLI** (`env-doctor.sh`) for environment discovery and optional progressive init. It has zero extra dependencies on the read-only pass (optional `python3` for LM Studio model counts). To keep it portable across generic repos and the [dev-master](https://github.com/k-dot-greyz/dev-master) superproject, all contributions must respect repository boundaries and the architectural protocols below.
+
+## Repository layout
+
+| Path | Purpose |
+|------|---------|
+| `env-doctor.sh` | Canonical script — all runtime logic lives here |
+| `docs/README.md` | Flags, config variables, quickstart |
+| `docs/ARCHITECTURE.md` | Phases, JSON envelope, profiles, extension points |
+| `docs/UX_AUDIT.md` | Reusability notes and UX history |
+| `README.md` | Top-level overview and dev-master consumption notes |
+| `SECURITY.md` | Vulnerability reporting policy |
+
+There is **no in-repo test suite**. When vendored under dev-master, pytest coverage lives in the superproject at `dex/10-tests/test_env_doctor_*.py`.
 
 ---
 
@@ -41,7 +54,8 @@ When contributing upstream, follow this precise workflow:
 4. **Run Pre-Commit Audit Checks**:
    Check for misplaced files or "diff noise" before staging or committing:
    * Run `git status` and verify that no internal workflow or fork-specific files are staged.
-   * Run `git diff` to ensure there are no formatting-only changes, trailing whitespace, or commented-out debug code.
+   * Run `git diff` and ensure there are no formatting-only changes, trailing whitespace, or commented-out debug code.
+   * Run the [local verification commands](#-4-local-development--verification) below.
 
 5. **Commit and Push to Your Fork**:
    Commit with a clear, conventional commit message and push to your fork (`origin`):
@@ -86,12 +100,12 @@ All development within `env-doctor` must strictly adhere to the **GlitchWorks Ag
 ### 2.2. Polymorphism by Default (Interface-Driven Contracts)
 
 * **Rule**: Depend on abstractions, not concretions.
-* **Application**: Interact with external dependencies through abstract interfaces or standard contracts. You must be able to swap out real services/tools with mocks at initialization without altering internal logic.
+* **Application**: External tools (`git`, `python3`, `gh`, Docker) are invoked through small helper functions (`_check_tool`, `_pass`, `_warn`, etc.) so behavior stays consistent across human and agent callers. Prefer config-driven branches (`ENV_DOCTOR_*`, `.env-doctor.conf`, `--profile`) over hardcoded repo-specific logic.
 
 ### 2.3. Open Piping (Strict Inter-Process Communication)
 
 * **Rule**: Modules must communicate via strictly typed, isolated message events rather than direct state mutation.
-* **Application**: Output data must follow a strict, predictable format (e.g., standard JSON schemas). Utilize standard streams (`stdout`/`stderr`) or APIs to transfer data. A CLI run and an automated agent run must trigger identical system behaviors by sending/receiving the same data.
+* **Application**: Human and agent callers must get identical behavior from the same flags. Machine output uses the `--json` envelope documented in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Human output uses `_pass` / `_warn` / `_fail` / `_info` on `stdout`; errors and hints go to `stderr` when appropriate. Never embed credentials or tokens in JSON rows.
 
 ### 2.4. Boundary Validation (The "Hostile Edge")
 
@@ -115,14 +129,43 @@ All development within `env-doctor` must strictly adhere to the **GlitchWorks Ag
 
 ---
 
-## 📋 3. Pre-Commit Checklist
+## 🧪 4. Local Development & Verification
+
+From this repository root:
+
+```bash
+# Smoke: help and agent-safe JSON (generic profile, no submodule scan)
+bash env-doctor.sh --help
+bash env-doctor.sh --json --quiet --skip-submodules
+
+# Optional static analysis (recommended when editing env-doctor.sh)
+shellcheck env-doctor.sh
+```
+
+When developing inside the dev-master superproject (after syncing this repo into `dex/09-repos/env-doctor` or `dex/04-scripts/env-doctor.sh`):
+
+```bash
+PYTHONPATH=dex/05-code/legacy_infrastructure pytest \
+  dex/10-tests/test_env_doctor_ux_security.py \
+  dex/10-tests/test_env_doctor_json_security.py \
+  --no-cov
+```
+
+After merging to `main` here, bump the submodule pointer in dev-master (see dev-master `dex/03-docs/guides/SUBMODULE_BUMP.md`).
+
+---
+
+## 📋 5. Pre-Commit Checklist
 
 Before submitting your PR, please verify:
 
-* Are all variables and paths initialized dynamically or via configuration?
-* Is the module entirely decoupled from any specific monorepo or superproject?
-* Are the input/output pipes strictly typed and isolated?
-* Can this logic be triggered headlessly without refactoring?
-* Is incoming data validated at the boundary before processing?
-* Can the current state/report be dehydrated and cleanly rehydrated?
-* Does the system fail predictably without crashing the host process?
+* Are all variables and paths initialized dynamically or via configuration (`.env-doctor.conf`, `ENV_DOCTOR_*`, `--profile`)?
+* Is the script decoupled from any specific monorepo path (no hardcoded `dex/` paths in core logic)?
+* Does `--json --quiet --skip-submodules` exit 0 and produce parseable JSON?
+* Does output avoid leaking credentials, tokens, or private URLs with embedded secrets?
+* Can this logic be triggered headlessly (`--json`, `--quiet`) without refactoring?
+* Are CLI flags and env vars validated at the boundary before use?
+* Does the system fail predictably (`set -euo pipefail`, typed exit codes) without crashing the host shell?
+* If `shellcheck` is available, does it report no new errors on `env-doctor.sh`?
+
+Report security issues per [`SECURITY.md`](SECURITY.md), not public issues.

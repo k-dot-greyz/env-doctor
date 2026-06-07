@@ -425,8 +425,12 @@ _detect_project_types() {
 _check_zen_teaser() {
   if command -v zen &>/dev/null; then
     local zv
-    zv="$(zen --version 2>&1 | head -1)"
-    _pass "zen" "$zv"
+    zv="$(zen --version 2>&1 | head -1 || true)"
+    if [[ -z "$zv" ]] || [[ "$zv" =~ Traceback ]] || [[ "$zv" =~ Error ]]; then
+      _warn "zen" "installed but broken: $zv"
+    else
+      _pass "zen" "$zv"
+    fi
   else
     _info "zen" "not installed"
   fi
@@ -534,6 +538,11 @@ phase2_tooling() {
         [[ -z "$dep" ]] && continue
         import_name="$dep"
         [[ "$dep" == "pyyaml" ]] && import_name="yaml"
+        if [[ ! "$import_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+          _warn "Python deps (ENV_DOCTOR_PYTHON_DEPS)" "skipped invalid import name: $dep"
+          deps_ok=false
+          break
+        fi
         if ! "$python_to_use" -c "import $import_name" 2>/dev/null; then
           deps_ok=false
           break
@@ -881,7 +890,15 @@ phase5_init() {
 
     if [[ "$DRY_RUN" == "true" ]]; then
       [[ ! -d .venv ]] && _info "Would run" "$BEST_PYTHON -m venv .venv"
-      _info "Would run" "$([[ "${PKG_MANAGER:-}" == poetry ]] && echo 'poetry install' || echo 'pip install -e .')"
+      if [[ "${PKG_MANAGER:-}" == poetry ]]; then
+        _info "Would run" "poetry install"
+      elif [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
+        _info "Would run" "pip install -e ."
+      elif [[ -f requirements.txt ]]; then
+        _info "Would run" "pip install -r requirements.txt"
+      else
+        _info "Tier 0 install" "no Python package manifest found; venv only"
+      fi
       _pass "Tier 0 init" "planned (dry-run)"
     else
       if [[ ! -d .venv ]]; then
@@ -894,9 +911,14 @@ phase5_init() {
       if [[ "${PKG_MANAGER:-}" == "poetry" ]]; then
         echo "  Installing deps via poetry..." >&2
         poetry install --no-interaction --no-root
-      else
-        echo "  Installing deps via pip..." >&2
+      elif [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
+        echo "  Installing deps via pip (editable)..." >&2
         pip install -e . --quiet
+      elif [[ -f requirements.txt ]]; then
+        echo "  Installing deps via pip (requirements.txt)..." >&2
+        pip install -r requirements.txt --quiet
+      else
+        _info "Tier 0 install" "no Python package manifest at repo root; venv created, install skipped"
       fi
       _pass "Tier 0 init" "venv + core deps installed"
     fi

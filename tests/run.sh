@@ -226,6 +226,69 @@ assert_json_contains "MCP CHANGE_ME placeholder warns" "$json_out" "placeholder"
 rm -f "$json_out"
 rm -rf "$mcp_repo" "$mcp_home"
 
+# ── Bug 4: color-vars crash before _setup_colors (unbound variable under set -u) ──
+# Trigger: invalid chars in ENV_DOCTOR_PYTHON_DEPS env var cause _warn to be called
+# from _bootstrap_env before _setup_colors runs, crashing with "Y: unbound variable".
+# After the fix: script must emit a warning and continue (exit 0 or 1, never >1).
+color_repo="$(make_fixture_repo color-crash true)"
+text_out="$(mktemp)"
+set +e
+ENV_DOCTOR_PYTHON_DEPS='invalid!dep' run_doctor "$color_repo" >"$text_out" 2>&1
+color_code=$?
+set -e
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ "$color_code" -gt 1 ]]; then
+  echo "FAIL: invalid ENV_DOCTOR_PYTHON_DEPS crashed env-doctor (exit $color_code, expected 0 or 1)" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -qi "unsafe characters" "$text_out"; then
+  echo "FAIL: invalid ENV_DOCTOR_PYTHON_DEPS should warn about unsafe characters" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out"
+rm -rf "$color_repo"
+
+# Same crash path via ENV_DOCTOR_CORE_REPOS with shell metacharacters.
+core_repo="$(make_fixture_repo core-crash true)"
+text_out="$(mktemp)"
+set +e
+ENV_DOCTOR_CORE_REPOS='repo;malicious' run_doctor "$core_repo" >"$text_out" 2>&1
+core_code=$?
+set -e
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ "$core_code" -gt 1 ]]; then
+  echo "FAIL: invalid ENV_DOCTOR_CORE_REPOS crashed env-doctor (exit $core_code, expected 0 or 1)" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -qi "unsafe characters" "$text_out"; then
+  echo "FAIL: invalid ENV_DOCTOR_CORE_REPOS should warn about unsafe characters" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out"
+rm -rf "$core_repo"
+
+# Same crash path via malformed .env-doctor.conf.
+conf_crash_repo="$(make_fixture_repo conf-crash bash -c "echo 'ENV_DOCTOR_PYTHON_DEPS=bad!chars' > .env-doctor.conf")"
+text_out="$(mktemp)"
+set +e
+run_doctor "$conf_crash_repo" >"$text_out" 2>&1
+conf_code=$?
+set -e
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ "$conf_code" -gt 1 ]]; then
+  echo "FAIL: malformed .env-doctor.conf crashed env-doctor (exit $conf_code, expected 0 or 1)" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -qi "unsafe characters" "$text_out"; then
+  echo "FAIL: malformed .env-doctor.conf should warn about unsafe characters" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out"
+rm -rf "$conf_crash_repo"
+
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
 [[ "$TESTS_FAILED" -eq 0 ]]

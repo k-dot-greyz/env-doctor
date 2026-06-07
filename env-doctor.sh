@@ -507,6 +507,7 @@ phase1_shell_os() {
         os_name="Linux (unknown distro)"
       fi ;;
     Darwin) os_name="macOS $(sw_vers -productVersion 2>/dev/null || echo '?')" ;;
+    MINGW*|MSYS*|CYGWIN*) os_name="Windows (Git Bash/MSYS2)" ;;
     *)      os_name="$kernel" ;;
   esac
   _pass "OS" "$os_name ($arch)"
@@ -1123,12 +1124,27 @@ phase5_init() {
         for tool in ripgrep shellcheck yamllint; do
           ! command -v "$tool" &>/dev/null && _info "Would run" "apt install $tool"
         done
+      elif command -v winget &>/dev/null; then
+        for tool in ripgrep shellcheck yamllint; do
+          local winget_tool="$tool"
+          [[ "$tool" == "ripgrep" ]] && winget_tool="BurntSushi.ripgrep"
+          [[ "$tool" == "shellcheck" ]] && winget_tool="koalaman.shellcheck"
+          ! command -v "$tool" &>/dev/null && _info "Would run" "winget install --silent --accept-source-agreements --accept-package-agreements $winget_tool"
+        done
+      elif command -v choco &>/dev/null; then
+        for tool in ripgrep shellcheck yamllint; do
+          ! command -v "$tool" &>/dev/null && _info "Would run" "choco install -y $tool"
+        done
+      elif command -v scoop &>/dev/null; then
+        for tool in ripgrep shellcheck yamllint; do
+          ! command -v "$tool" &>/dev/null && _info "Would run" "scoop install $tool"
+        done
       fi
       _pass "Tier 2 init" "planned (dry-run)"
     else
       echo "  Initializing all submodules..." >&2
       _timeout_cmd 60 git submodule update --init 2>/dev/null || true
-
+  
       if command -v brew &>/dev/null; then
         for tool in ripgrep shellcheck yamllint; do
           if ! command -v "$tool" &>/dev/null; then
@@ -1148,6 +1164,42 @@ phase5_init() {
               sudo apt-get install -y "$tool" 2>/dev/null || true
             else
               _warn "Consent required" "Skipping 'sudo apt-get install -y $tool' (run with --yes or -y to authorize)"
+            fi
+          fi
+        done
+      elif command -v winget &>/dev/null; then
+        for tool in ripgrep shellcheck yamllint; do
+          if ! command -v "$tool" &>/dev/null; then
+            local winget_tool="$tool"
+            [[ "$tool" == "ripgrep" ]] && winget_tool="BurntSushi.ripgrep"
+            [[ "$tool" == "shellcheck" ]] && winget_tool="koalaman.shellcheck"
+            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+              echo "  winget install --silent --accept-source-agreements --accept-package-agreements $winget_tool..." >&2
+              winget install --silent --accept-source-agreements --accept-package-agreements "$winget_tool" 2>/dev/null || true
+            else
+              _warn "Consent required" "Skipping 'winget install $winget_tool' (run with --yes or -y to authorize)"
+            fi
+          fi
+        done
+      elif command -v choco &>/dev/null; then
+        for tool in ripgrep shellcheck yamllint; do
+          if ! command -v "$tool" &>/dev/null; then
+            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+              echo "  choco install -y $tool..." >&2
+              choco install -y "$tool" 2>/dev/null || true
+            else
+              _warn "Consent required" "Skipping 'choco install -y $tool' (run with --yes or -y to authorize)"
+            fi
+          fi
+        done
+      elif command -v scoop &>/dev/null; then
+        for tool in ripgrep shellcheck yamllint; do
+          if ! command -v "$tool" &>/dev/null; then
+            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+              echo "  scoop install $tool..." >&2
+              scoop install "$tool" 2>/dev/null || true
+            else
+              _warn "Consent required" "Skipping 'scoop install $tool' (run with --yes or -y to authorize)"
             fi
           fi
         done

@@ -1,5 +1,8 @@
 # env-doctor
 
+> Repository note: this repository is currently published at `k-dot-greyz/env-doctor`.
+> If the project later moves to an upstream organization, update all install and release URLs together.
+
 Bash **environment discovery** and optional **progressive init** for any git repository. Zero extra dependencies for the read-only pass.
 
 Designed and implemented in accordance with the **GlitchWorks Agnostic Architecture Protocol (GW-AAP)**. It operates as a pure, decoupled data pipeline with a strictly typed JSON output seam, dynamic configuration injection, and graceful degradation.
@@ -9,7 +12,7 @@ Canonical implementation: `env-doctor.sh` in this repository.
 ## Quick Start
 
 ```bash
-git clone https://github.com/greyz/env-doctor.git
+git clone https://github.com/k-dot-greyz/env-doctor.git
 cd env-doctor
 bash env-doctor.sh --help
 ```

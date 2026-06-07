@@ -788,15 +788,22 @@ _check_python() {
 
 _check_pkg_manager() {
   local found=""
-  for mgr in uv poetry pip3 pip; do
-    if command -v "$mgr" &>/dev/null; then
-      local ver
-      ver="$($mgr --version 2>&1 | head -1)"
-      _pass "pkg manager ($mgr)" "$ver"
-      found="$mgr"
-      break
-    fi
-  done
+  if [[ -n "${PKG_MANAGER:-}" ]] && command -v "$PKG_MANAGER" &>/dev/null; then
+    local ver
+    ver="$($PKG_MANAGER --version 2>&1 | head -1)"
+    _pass "pkg manager ($PKG_MANAGER)" "$ver"
+    found="$PKG_MANAGER"
+  else
+    for mgr in uv poetry pip3 pip; do
+      if command -v "$mgr" &>/dev/null; then
+        local ver
+        ver="$($mgr --version 2>&1 | head -1)"
+        _pass "pkg manager ($mgr)" "$ver"
+        found="$mgr"
+        break
+      fi
+    done
+  fi
   if [[ -z "$found" ]]; then
     if _project_has python; then
       _fail "pkg manager" "none of uv/poetry/pip found"
@@ -1242,5 +1249,5 @@ main() {
 }
 
 BEST_PYTHON=""
-PKG_MANAGER=""
+PKG_MANAGER="${PKG_MANAGER:-}"
 main "$@"

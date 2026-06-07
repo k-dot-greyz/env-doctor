@@ -6,6 +6,9 @@ set -euo pipefail
 # shellcheck source=tests/helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 
+# Colors
+G=$'\033[32m'; R=$'\033[31m'; RST=$'\033[0m'
+
 echo "env-doctor tests (script: $CANONICAL_SCRIPT)"
 
 # ── CLI / argv ───────────────────────────────────────────────────────────────
@@ -22,48 +25,41 @@ assert_eq "-jq exit code" "0" "$code"
 assert_json_ok "-jq valid JSON" "$tmp_json"
 rm -f "$tmp_json"
 
-# ── Generic profile (no dex monorepo markers) ────────────────────────────────
+# ── Generic standalone behavior (submodule scan off by default) ──────────────
 generic_repo="$(make_fixture_repo generic true)"
 json_out="$(mktemp)"
-run_doctor "$generic_repo" --json --skip-submodules >"$json_out"
+run_doctor "$generic_repo" --json >"$json_out"
 assert_json_ok "generic repo JSON" "$json_out"
-assert_json_contains "generic skips submodule scan" "$json_out" "scan skipped"
+assert_json_contains "generic skips submodule scan by default" "$json_out" "scan skipped"
 rm -f "$json_out"
 rm -rf "$generic_repo"
 
-# ── dev-master profile auto-detect ───────────────────────────────────────────
-dm_repo="$(make_fixture_repo dev-master bash -c '
-  mkdir -p dex/09-repos/demo
+# ── Submodule scan opt-in ────────────────────────────────────────────────────
+sub_repo="$(make_fixture_repo sub-opt-in bash -c '
+  mkdir -p vendor/secret
   cat > .gitmodules <<EOF
-[submodule "dex/09-repos/demo"]
-	path = dex/09-repos/demo
-	url = https://github.com/example/demo.git
+[submodule "vendor/secret"]
+	path = vendor/secret
+	url = https://github.com/org/private/repo.git
 EOF
 ')"
 json_out="$(mktemp)"
-run_doctor "$dm_repo" --json -q >"$json_out"
-assert_json_ok "dev-master-like JSON" "$json_out"
-# Submodule scan should run (not the generic skip message as the only submodules line)
+# By default, submodule scan is skipped in generic standalone env-doctor
+run_doctor "$sub_repo" --json -q >"$json_out"
+assert_json_contains "standalone skips submodule scan by default" "$json_out" "scan skipped"
+
+# With --with-submodules, submodule scan is executed
+run_doctor "$sub_repo" --with-submodules --json -q >"$json_out"
 if grep -q "scan skipped" "$json_out"; then
-  echo "FAIL: dev-master-like repo should not skip submodule scan by default" >&2
+  echo "FAIL: --with-submodules should not skip submodule scan" >&2
   TESTS_FAILED=$((TESTS_FAILED + 1))
+  TESTS_RUN=$((TESTS_RUN + 1))
+else
+  echo "  ${G}[PASS]${RST} --with-submodules runs submodule scan"
   TESTS_RUN=$((TESTS_RUN + 1))
 fi
 rm -f "$json_out"
-rm -rf "$dm_repo"
-
-# ── Profile override ─────────────────────────────────────────────────────────
-dm_repo="$(make_fixture_repo dm-override bash -c '
-  mkdir -p dex/09-repos/demo
-  echo "[submodule \"dex/09-repos/demo\"]" > .gitmodules
-  echo "	path = dex/09-repos/demo" >> .gitmodules
-  echo "	url = https://github.com/example/demo.git" >> .gitmodules
-')"
-json_out="$(mktemp)"
-run_doctor "$dm_repo" --profile generic --json -q >"$json_out"
-assert_json_contains "profile generic forces submodule skip" "$json_out" "scan skipped"
-rm -f "$json_out"
-rm -rf "$dm_repo"
+rm -rf "$sub_repo"
 
 # ── .env placeholder detection ───────────────────────────────────────────────
 env_repo="$(make_fixture_repo env-placeholder bash -c '
@@ -93,7 +89,7 @@ rm -rf "$brand_repo"
 # Trigger: dep name with shell/Python metacharacters must be rejected, not executed.
 inj_repo="$(make_fixture_repo py-inject bash -c "
   echo '[project]' > pyproject.toml
-  echo \"ENV_DOCTOR_PYTHON_DEPS='os;evil'\" > .env-doctor.conf
+  echo \"ENV_DOCTOR_PYTHON_DEPS='os,123evil'\" > .env-doctor.conf
 ")"
 json_out="$(mktemp)"
 run_doctor "$inj_repo" --json -q >"$json_out" 2>/dev/null || true
@@ -146,8 +142,10 @@ rm -rf "$zen_repo"
 rust_repo="$(make_fixture_repo rust-init bash -c 'printf "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n" > Cargo.toml')"
 text_out="$(mktemp)"
 set +e
+export PKG_MANAGER="pip"
 run_doctor "$rust_repo" -it0n >"$text_out" 2>&1
 rust_code=$?
+unset PKG_MANAGER
 set -e
 assert_eq "non-Python repo --init dry-run exits 0" "0" "$rust_code"
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -164,8 +162,10 @@ rm -rf "$rust_repo"
 req_repo="$(make_fixture_repo req-only bash -c 'echo "requests" > requirements.txt')"
 text_out="$(mktemp)"
 set +e
+export PKG_MANAGER="pip"
 run_doctor "$req_repo" -it0n >"$text_out" 2>&1
 req_code=$?
+unset PKG_MANAGER
 set -e
 assert_eq "requirements.txt-only dry-run exits 0" "0" "$req_code"
 TESTS_RUN=$((TESTS_RUN + 1))

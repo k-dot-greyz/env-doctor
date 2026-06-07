@@ -68,6 +68,10 @@ DOCTOR_NAME="env-doctor"
 ENV_DOCTOR_VERSION="1.1.0"
 UNSAFE_SOURCE_CONFIG=false
 ENV_DOCTOR_ASSUME_YES=false
+# Color codes default to empty (no color) until _setup_colors runs.
+# Must be initialized here so _warn/_fail/_info are safe to call from
+# _bootstrap_env/_load_config, which execute BEFORE _setup_colors.
+R=''; G=''; Y=''; B=''; DIM=''; BOLD=''; RST=''
 
 # ── colors (disabled if not tty or --json/--quiet) ───────────────────────────
 _setup_colors() {

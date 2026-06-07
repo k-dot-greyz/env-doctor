@@ -991,6 +991,16 @@ phase4_creds() {
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Progressive Init (--init only)
 # ═════════════════════════════════════════════════════════════════════════════
+
+# Activate a virtualenv, handling both Unix (bin/) and Windows (Scripts/) layouts.
+_venv_activate() {
+  local venv_dir="${1:-.venv}"
+  local activate_script="$venv_dir/bin/activate"
+  [[ -f "$venv_dir/Scripts/activate" ]] && activate_script="$venv_dir/Scripts/activate"
+  # shellcheck disable=SC1090,SC1091
+  source "$activate_script"
+}
+
 phase5_init() {
   [[ "$DO_INIT" == false ]] && return
 
@@ -1036,8 +1046,7 @@ phase5_init() {
         echo "  Creating .venv with $BEST_PYTHON..." >&2
         "$BEST_PYTHON" -m venv .venv
       fi
-      # shellcheck disable=SC1091
-      source .venv/bin/activate
+      _venv_activate .venv
 
       if [[ "${PKG_MANAGER:-}" == "poetry" ]]; then
         echo "  Installing deps via poetry..." >&2
@@ -1099,8 +1108,7 @@ phase5_init() {
       _pass "Tier 1 init" "planned (dry-run)"
     else
       if [[ -d .venv ]]; then
-        # shellcheck disable=SC1091
-        source .venv/bin/activate
+        _venv_activate .venv
         echo "  Installing dev extras..." >&2
         pip install -e ".[dev]" --quiet 2>/dev/null || true
       fi

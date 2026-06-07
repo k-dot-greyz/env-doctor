@@ -289,6 +289,56 @@ fi
 rm -f "$text_out"
 rm -rf "$conf_crash_repo"
 
+# ── Bug 5: venv activation crashes on Windows (Scripts/ layout vs bin/) ──────
+# Trigger: native Windows Python creates .venv/Scripts/activate, not .venv/bin/activate.
+# Running --init after the Windows commit would crash with "No such file or directory"
+# from `source .venv/bin/activate` under set -e.
+# Fix: _venv_activate() probes Scripts/ first.
+# Simulate on Linux: build a real venv, move activate to Scripts/, remove from bin/.
+_make_venv() {
+  local dest="$1"
+  if python3 -m venv "$dest" 2>/dev/null; then
+    return 0
+  fi
+  local _venv_bin
+  _venv_bin="$(command -v virtualenv 2>/dev/null || echo "$HOME/.local/bin/virtualenv")"
+  if [[ -x "$_venv_bin" ]]; then
+    "$_venv_bin" "$dest" --quiet 2>/dev/null
+    return 0
+  fi
+  return 1
+}
+
+win_venv_repo="$(make_fixture_repo win-venv-activate bash -c 'echo "# no deps" > requirements.txt')"
+if _make_venv "$win_venv_repo/.venv"; then
+  if [[ -f "$win_venv_repo/.venv/bin/activate" ]]; then
+    mkdir -p "$win_venv_repo/.venv/Scripts"
+    cp "$win_venv_repo/.venv/bin/activate" "$win_venv_repo/.venv/Scripts/activate"
+    rm -f "$win_venv_repo/.venv/bin/activate"
+  fi
+  text_out="$(mktemp)"
+  set +e
+  PKG_MANAGER=pip run_doctor "$win_venv_repo" --init >"$text_out" 2>&1
+  win_code=$?
+  set -e
+  TESTS_RUN=$((TESTS_RUN + 1))
+  # Before the fix: source .venv/bin/activate (missing) → _error_trap → exit 1.
+  # After the fix: _venv_activate picks Scripts/activate → success → exit 0.
+  if [[ "$win_code" -ne 0 ]]; then
+    echo "FAIL: --init with Scripts-layout venv failed (exit $win_code, expected 0) — venv activation did not fall back to Scripts/activate" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -q "Unexpected script failure" "$text_out"; then
+    echo "FAIL: --init with Scripts-layout venv hit unexpected error (likely venv activation crash)" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -f "$text_out"
+else
+  echo "  [info] skipping Scripts-layout venv test (no venv tool available)"
+fi
+rm -rf "$win_venv_repo"
+
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
 [[ "$TESTS_FAILED" -eq 0 ]]

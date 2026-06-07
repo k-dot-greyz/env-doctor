@@ -597,6 +597,20 @@ _detect_project_types() {
   return 0
 }
 
+_check_zen_teaser() {
+  if command -v zen &>/dev/null; then
+    local zv
+    zv="$(zen --version 2>&1 | head -1 || true)"
+    if [[ -z "$zv" ]] || [[ "$zv" =~ Traceback ]] || [[ "$zv" =~ Error ]]; then
+      _warn "zen" "installed but broken: $zv"
+    else
+      _pass "zen" "$zv"
+    fi
+  else
+    _info "zen" "not installed"
+  fi
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Core Tooling Discovery
 # ═════════════════════════════════════════════════════════════════════════════
@@ -695,6 +709,11 @@ phase2_tooling() {
         [[ -z "$dep" ]] && continue
         import_name="$dep"
         [[ "$dep" == "pyyaml" ]] && import_name="yaml"
+        if [[ ! "$import_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+          _warn "Python deps (ENV_DOCTOR_PYTHON_DEPS)" "skipped invalid import name: $dep"
+          deps_ok=false
+          break
+        fi
         if ! "$python_to_use" -c "import $import_name" 2>/dev/null; then
           deps_ok=false
           break
@@ -769,15 +788,22 @@ _check_python() {
 
 _check_pkg_manager() {
   local found=""
-  for mgr in uv poetry pip3 pip; do
-    if command -v "$mgr" &>/dev/null; then
-      local ver
-      ver="$($mgr --version 2>&1 | head -1)"
-      _pass "pkg manager ($mgr)" "$ver"
-      found="$mgr"
-      break
-    fi
-  done
+  if [[ -n "${PKG_MANAGER:-}" ]] && command -v "$PKG_MANAGER" &>/dev/null; then
+    local ver
+    ver="$($PKG_MANAGER --version 2>&1 | head -1)"
+    _pass "pkg manager ($PKG_MANAGER)" "$ver"
+    found="$PKG_MANAGER"
+  else
+    for mgr in uv poetry pip3 pip; do
+      if command -v "$mgr" &>/dev/null; then
+        local ver
+        ver="$($mgr --version 2>&1 | head -1)"
+        _pass "pkg manager ($mgr)" "$ver"
+        found="$mgr"
+        break
+      fi
+    done
+  fi
   if [[ -z "$found" ]]; then
     if _project_has python; then
       _fail "pkg manager" "none of uv/poetry/pip found"
@@ -990,7 +1016,15 @@ phase5_init() {
 
     if [[ "$DRY_RUN" == "true" ]]; then
       [[ ! -d .venv ]] && _info "Would run" "$BEST_PYTHON -m venv .venv"
-      _info "Would run" "$([[ "${PKG_MANAGER:-}" == poetry ]] && echo 'poetry install' || echo 'pip install -e .')"
+      if [[ "${PKG_MANAGER:-}" == poetry ]]; then
+        _info "Would run" "poetry install"
+      elif [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
+        _info "Would run" "pip install -e ."
+      elif [[ -f requirements.txt ]]; then
+        _info "Would run" "pip install -r requirements.txt"
+      else
+        _info "Tier 0 install" "no Python package manifest found; venv only"
+      fi
       _pass "Tier 0 init" "planned (dry-run)"
     else
       if [[ ! -d .venv ]]; then
@@ -1003,9 +1037,14 @@ phase5_init() {
       if [[ "${PKG_MANAGER:-}" == "poetry" ]]; then
         echo "  Installing deps via poetry..." >&2
         poetry install --no-interaction --no-root
-      else
-        echo "  Installing deps via pip..." >&2
+      elif [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
+        echo "  Installing deps via pip (editable)..." >&2
         pip install -e . --quiet
+      elif [[ -f requirements.txt ]]; then
+        echo "  Installing deps via pip (requirements.txt)..." >&2
+        pip install -r requirements.txt --quiet
+      else
+        _info "Tier 0 install" "no Python package manifest at repo root; venv created, install skipped"
       fi
       _pass "Tier 0 init" "venv + core deps installed"
     fi
@@ -1210,5 +1249,5 @@ main() {
 }
 
 BEST_PYTHON=""
-PKG_MANAGER=""
+PKG_MANAGER="${PKG_MANAGER:-}"
 main "$@"

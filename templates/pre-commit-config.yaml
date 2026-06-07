@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: env-doctor-smoke
+        name: env-doctor smoke check
+        entry: bash env-doctor.sh --json --quiet
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

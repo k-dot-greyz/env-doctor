@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # env-doctor.sh — Environment discovery and progressive init for any git repo.
-# Extra heuristics (submodules, dex paths, Agent RAM) activate in dev-master / zenOS-style trees
-# via .env-doctor.conf or auto-detected profile. Targets: VSCode, Linux (bash), macOS (zsh), WSL.
-# Zero external deps on discovery pass (pure bash/zsh) except optional python3 for LM Studio model counts.
+# Licensed under GPL-3.0 — (c) 2026 greyZ
+# Targets: VSCode, Linux (bash), macOS (zsh), WSL.
+# Zero external deps on discovery pass (pure bash/zsh).
 #
 # ToC:
 #   Phase 1  Shell & OS Discovery (phase1_shell_os)
@@ -13,12 +13,35 @@
 #   Summary  (summary)
 #
 # Usage:
-#   bash env-doctor.sh                    # discovery (submodules skipped unless profile=dev-master)
+#   bash env-doctor.sh                    # discovery (submodules skipped by default)
 #   bash env-doctor.sh --with-submodules # include submodule scan + private URL warnings
 #   bash env-doctor.sh --init             # progressive init (tier 1)
 #   See --help for full options.
 
 set -euo pipefail
+
+_error_trap() {
+  local exit_code=$?
+  [[ $exit_code -eq 0 ]] && return 0
+  trap - ERR EXIT
+
+  if [[ "${OUTPUT_JSON:-false}" == "true" ]]; then
+    printf '\n{"schema":"env-doctor/1","results":[],"issues":1,"warnings":0,"ok":false,"error":"Unexpected script failure (exit code %d)"}\n' "$exit_code"
+  else
+    if [[ "${QUIET:-false}" != "true" ]]; then
+      # If colors are not initialized yet, define R/RST inline
+      local red_color="${R:-}"
+      local rst_color="${RST:-}"
+      if [[ -z "$red_color" ]] && [[ -t 1 ]]; then
+        red_color=$'\033[31m'
+        rst_color=$'\033[0m'
+      fi
+      printf "\n%s[FAIL]%s Unexpected script failure (exit code %d)\n" "$red_color" "$rst_color" "$exit_code" >&2
+    fi
+  fi
+  exit "$exit_code"
+}
+trap '_error_trap' ERR EXIT
 
 _ENV_DOCTOR_SCRIPT="${BASH_SOURCE[0]}"
 
@@ -31,20 +54,20 @@ OUTPUT_JSON=false
 QUIET=false
 SUBMODULES_ONLY=false
 USER_SUBMODULE_CHOICE=""
-PROFILE_OVERRIDE=""
 BRAND_OVERRIDE=""
-PROFILE=""
 WITH_SUBMODULES=false
 PROJECT_TYPES=()
 BRAND="${BRAND:-}"
 ENV_DOCTOR_CORE_REPOS="${ENV_DOCTOR_CORE_REPOS:-}"
 ENV_DOCTOR_PYTHON_DEPS="${ENV_DOCTOR_PYTHON_DEPS:-}"
-ENV_DOCTOR_SHOW_AGENT_RAM="${ENV_DOCTOR_SHOW_AGENT_RAM:-}"
 ENV_DOCTOR_HELP_URL="${ENV_DOCTOR_HELP_URL:-}"
 ISSUES=0
 WARNINGS=0
 JSON_LINES=()
 DOCTOR_NAME="env-doctor"
+ENV_DOCTOR_VERSION="1.1.0"
+UNSAFE_SOURCE_CONFIG=false
+ENV_DOCTOR_ASSUME_YES=false
 
 # ── colors (disabled if not tty or --json/--quiet) ───────────────────────────
 _setup_colors() {
@@ -57,31 +80,59 @@ _setup_colors() {
 }
 
 # ── output helpers ───────────────────────────────────────────────────────────
+_escape_json_string() {
+  local s="$1"
+  # Backslash MUST be first
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  s="${s//$'\b'/\\b}"
+  s="${s//$'\f'/\\f}"
+  # Remove any other non-printable control characters (ASCII 0-31)
+  printf '%s' "$s" | tr -d '\000-\007\013\016-\037'
+}
+
 _jline() {
   local type=$1 k=$2 v=$3
-  printf '{"type":"%s","key":"%s","value":"%s"}\n' "$type" "$(printf '%s' "$k" | sed 's/\\/\\\\/g; s/"/\\"/g')" "$(printf '%s' "$v" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  local clean_k="${k//$HOME/~}"
+  local clean_v="${v//$HOME/~}"
+  local esc_k esc_v
+  esc_k="$(_escape_json_string "$clean_k")"
+  esc_v="$(_escape_json_string "$clean_v")"
+  printf '{"type":"%s","key":"%s","value":"%s"}\n' "$type" "$esc_k" "$esc_v"
 }
 _pass()  {
-  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "pass" "$1" "$2")"); return; fi
-  [[ "$QUIET" == "true" ]] && return; printf "  ${G}[PASS]${RST}  %-28s %s\n" "$1" "$2";
+  local clean_k="${1//$HOME/~}"
+  local clean_v="${2//$HOME/~}"
+  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "pass" "$clean_k" "$clean_v")"); return; fi
+  [[ "$QUIET" == "true" ]] && return; printf "  ${G}[PASS]${RST}  %-28s %s\n" "$clean_k" "$clean_v";
 }
 _warn()  {
   WARNINGS=$((WARNINGS+1))
-  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "warn" "$1" "$2")"); return; fi
-  [[ "$QUIET" == "true" ]] && return; printf "  ${Y}[WARN]${RST}  %-28s %s\n" "$1" "$2";
+  local clean_k="${1//$HOME/~}"
+  local clean_v="${2//$HOME/~}"
+  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "warn" "$clean_k" "$clean_v")"); return; fi
+  [[ "$QUIET" == "true" ]] && return; printf "  ${Y}[WARN]${RST}  %-28s %s\n" "$clean_k" "$clean_v";
 }
 _fail()  {
   ISSUES=$((ISSUES+1))
-  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "fail" "$1" "$2")"); return; fi
-  [[ "$QUIET" == "true" ]] && return; printf "  ${R}[FAIL]${RST}  %-28s %s\n" "$1" "$2";
+  local clean_k="${1//$HOME/~}"
+  local clean_v="${2//$HOME/~}"
+  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "fail" "$clean_k" "$clean_v")"); return; fi
+  [[ "$QUIET" == "true" ]] && return; printf "  ${R}[FAIL]${RST}  %-28s %s\n" "$clean_k" "$clean_v";
 }
 _info()  {
-  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "info" "$1" "$2")"); return; fi
-  [[ "$QUIET" == "true" ]] && return; printf "  ${DIM}[info]${RST}  %-28s %s\n" "$1" "$2";
+  local clean_k="${1//$HOME/~}"
+  local clean_v="${2//$HOME/~}"
+  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "info" "$clean_k" "$clean_v")"); return; fi
+  [[ "$QUIET" == "true" ]] && return; printf "  ${DIM}[info]${RST}  %-28s %s\n" "$clean_k" "$clean_v";
 }
 _head()  {
-  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "section" "$1" "")"); return; fi
-  [[ "$QUIET" == "true" ]] && return; printf "\n${BOLD}${B}── %s ──${RST}\n" "$1";
+  local clean_k="${1//$HOME/~}"
+  if [[ "$OUTPUT_JSON" == "true" ]]; then JSON_LINES+=("$(_jline "section" "$clean_k" "")"); return; fi
+  [[ "$QUIET" == "true" ]] && return; printf "\n${BOLD}${B}── %s ──${RST}\n" "$clean_k";
 }
 
 # Run with timeout when GNU coreutils timeout exists (stock macOS often lacks it).
@@ -103,6 +154,25 @@ _git_config_regexp_value() {
   else
     printf '%s' "$line" | sed 's/^[^[:space:]]*[[:space:]]\{1,\}//'
   fi
+}
+
+# Redact embedded credentials before JSON/stdout (agents parse --json).
+_redact_git_url() {
+  local url="${1:-}"
+  [[ -z "$url" || "$url" == "none" ]] && printf '%s' "$url" && return 0
+  # GitHub HTTPS token-in-URL (Actions, credential helpers).
+  url="${url//x-access-token:*@/x-access-token:[REDACTED]@}"
+  url="${url//x-oauth-basic:*@/x-oauth-basic:[REDACTED]@}"
+  # github_pat_, ghp_, ghs_, gho_, ghr_ tokens, and GitLab glpat- tokens
+  url="$(printf '%s' "$url" | sed -E \
+    's/github_pat_[A-Za-z0-9_]+/[REDACTED]/g;
+     s/gh[pousr]_[A-Za-z0-9]{20,}/[REDACTED]/g;
+     s/glpat-[A-Za-z0-9_-]{20,}/[REDACTED]/g')"
+  # generic user:password@ in any scheme (https://, http://, ssh://, git://)
+  if [[ "$url" =~ ://[^/@]+:[^/@]+@ ]]; then
+    url="$(printf '%s' "$url" | sed -E 's#([a-zA-Z0-9+-]+://)[^/@:]+:[^/@]+@#\1[REDACTED]:[REDACTED]@#')"
+  fi
+  printf '%s' "$url"
 }
 
 # Submodule path from one line of git submodule status (paths may contain spaces).
@@ -150,7 +220,7 @@ _check_private_submodules() {
   fi
 
   # GitHub SSH prints success on stderr and exits 1 — detect auth from output, not exit code.
-  if ssh -T -o BatchMode=yes -o ConnectTimeout=5 git@github.com 2>&1 \
+  if _timeout_cmd 5 ssh -T -o BatchMode=yes -o ConnectTimeout=5 git@github.com 2>&1 \
       | grep -q "successfully authenticated"; then
     ssh_works=true
   fi
@@ -160,7 +230,9 @@ _check_private_submodules() {
 
   _warn "Private submodules" "${#private_submodules[@]} detected $ssh_info"
   for sub in "${private_submodules[@]}"; do
-    _info "  Private repo" "$sub"
+    local redacted_sub
+    redacted_sub="$(_redact_git_url "$sub")"
+    _info "  Private repo" "$redacted_sub"
   done
 
   # Provide guidance
@@ -186,37 +258,125 @@ _resolve_repo_root() {
   fi
 }
 
-_detect_profile() {
-  if [[ -n "${PROFILE_OVERRIDE:-}" ]]; then
-    PROFILE="$PROFILE_OVERRIDE"
-    return
+# Safe KEY=value allowlist parser to prevent arbitrary code execution.
+_load_config() {
+  local conf_file="$REPO_ROOT/.env-doctor.conf"
+  [[ -f "$conf_file" ]] || return 0
+
+  if [[ "${UNSAFE_SOURCE_CONFIG:-false}" == "true" ]]; then
+    local owner="" perms="" is_safe=true
+    if stat --help 2>&1 | grep -q 'GNU'; then
+      owner="$(stat -c '%U' "$conf_file" 2>/dev/null || echo "")"
+      perms="$(stat -c '%a' "$conf_file" 2>/dev/null || echo "")"
+    else
+      owner="$(stat -f '%Su' "$conf_file" 2>/dev/null || echo "")"
+      perms="$(stat -f '%Lp' "$conf_file" 2>/dev/null || echo "")"
+    fi
+
+    if [[ -n "$perms" ]]; then
+      local last_digit="${perms: -1}"
+      if [[ "$last_digit" =~ [2367] ]]; then
+        _warn "Config security" "Unsafe source config: world-writable perms ($perms). Refusing to source."
+        is_safe=false
+      fi
+    fi
+
+    local current_user
+    current_user="$(id -un 2>/dev/null || whoami 2>/dev/null || echo "")"
+    if [[ -n "$owner" && -n "$current_user" && "$owner" != "$current_user" && "$owner" != "root" ]]; then
+      _warn "Config security" "Unsafe source config: owned by $owner (not $current_user). Refusing to source."
+      is_safe=false
+    fi
+
+    if [[ "$is_safe" == "true" ]]; then
+      # shellcheck disable=SC1090,SC1091
+      source "$conf_file"
+      return 0
+    fi
   fi
-  if [[ -f "$REPO_ROOT/.gitmodules" ]] \
-     && [[ -d "$REPO_ROOT/dex" ]] \
-     && grep -q "dex/09-repos" "$REPO_ROOT/.gitmodules" 2>/dev/null; then
-    PROFILE="dev-master"
-  else
-    PROFILE="generic"
-  fi
+
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    # Ignore comments or empty lines
+    [[ -z "$line" || "$line" == "#"* ]] && continue
+
+    # Parse KEY=VALUE
+    if [[ "$line" =~ ^([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      val="${BASH_REMATCH[2]}"
+
+      # Allowlist check
+      case "$key" in
+        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL)
+          # Strip surrounding single or double quotes from value
+          if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
+            val="${BASH_REMATCH[1]}"
+          fi
+
+          # Validate + clamp values (length/charset)
+          if [[ ${#val} -gt 1024 ]]; then
+            _warn "Config validation" "Config key $key value exceeds max length (1024). Truncating."
+            val="${val:0:1024}"
+          fi
+
+          if [[ "$key" == "BRAND" ]]; then
+            if [[ ! "$val" =~ ^[A-Za-z0-9[:space:]_.-]*$ ]]; then
+              _warn "Config validation" "BRAND contains unsafe characters. Skipping."
+              continue
+            fi
+            BRAND="$val"
+          elif [[ "$key" == "ENV_DOCTOR_CORE_REPOS" ]]; then
+            if [[ "$val" == *';'* || "$val" == *'&'* || "$val" == *'`'* || "$val" == *'$'* || "$val" == *'('* || "$val" == *')'* || "$val" == *'<'* || "$val" == *'>'* || "$val" == *'|'* ]]; then
+              _warn "Config validation" "ENV_DOCTOR_CORE_REPOS contains unsafe characters. Skipping."
+              continue
+            fi
+            ENV_DOCTOR_CORE_REPOS="$val"
+          elif [[ "$key" == "ENV_DOCTOR_PYTHON_DEPS" ]]; then
+            if [[ ! "$val" =~ ^[A-Za-z0-9_,-]*$ ]]; then
+              _warn "Config validation" "ENV_DOCTOR_PYTHON_DEPS contains unsafe characters. Skipping."
+              continue
+            fi
+            ENV_DOCTOR_PYTHON_DEPS="$val"
+          elif [[ "$key" == "ENV_DOCTOR_HELP_URL" ]]; then
+            if [[ ! "$val" =~ ^https?://[A-Za-z0-9_.-]+(/.*)?$ ]]; then
+              _warn "Config validation" "ENV_DOCTOR_HELP_URL is not a valid HTTP/HTTPS URL. Skipping."
+              continue
+            fi
+            ENV_DOCTOR_HELP_URL="$val"
+          fi
+          ;;
+      esac
+    fi
+  done < "$conf_file"
 }
 
 _bootstrap_env() {
   _resolve_repo_root
-  if [[ -f "$REPO_ROOT/.env-doctor.conf" ]]; then
-    # shellcheck disable=SC1090
-    source "$REPO_ROOT/.env-doctor.conf"
-  fi
+  _load_config
   DOCTOR_NAME="$(basename "$_ENV_DOCTOR_SCRIPT")"
   [[ -n "${BRAND_OVERRIDE:-}" ]] && BRAND="$BRAND_OVERRIDE"
-  _detect_profile
   if [[ "$USER_SUBMODULE_CHOICE" == with ]]; then
-    WITH_SUBMODULES=true
-  elif [[ "$USER_SUBMODULE_CHOICE" == skip ]]; then
-    WITH_SUBMODULES=false
-  elif [[ "$PROFILE" == dev-master ]]; then
     WITH_SUBMODULES=true
   else
     WITH_SUBMODULES=false
+  fi
+
+  # Sanitize environment variables if they were set externally (not via config)
+  if [[ -n "${ENV_DOCTOR_CORE_REPOS:-}" ]]; then
+    if [[ "$ENV_DOCTOR_CORE_REPOS" == *';'* || "$ENV_DOCTOR_CORE_REPOS" == *'&'* || "$ENV_DOCTOR_CORE_REPOS" == *'`'* || "$ENV_DOCTOR_CORE_REPOS" == *'$'* || "$ENV_DOCTOR_CORE_REPOS" == *'('* || "$ENV_DOCTOR_CORE_REPOS" == *')'* || "$ENV_DOCTOR_CORE_REPOS" == *'<'* || "$ENV_DOCTOR_CORE_REPOS" == *'>'* || "$ENV_DOCTOR_CORE_REPOS" == *'|'* ]]; then
+      _warn "Environment validation" "ENV_DOCTOR_CORE_REPOS contains unsafe characters. Resetting to empty."
+      ENV_DOCTOR_CORE_REPOS=""
+    fi
+  fi
+  if [[ -n "${ENV_DOCTOR_PYTHON_DEPS:-}" ]]; then
+    if [[ ! "$ENV_DOCTOR_PYTHON_DEPS" =~ ^[A-Za-z0-9_,-]*$ ]]; then
+      _warn "Environment validation" "ENV_DOCTOR_PYTHON_DEPS contains unsafe characters. Resetting to empty."
+      ENV_DOCTOR_PYTHON_DEPS=""
+    fi
   fi
 }
 
@@ -254,23 +414,37 @@ fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --init|-i)      DO_INIT=true; shift ;;
-    --tier|-t)      INIT_TIER="${2:?--tier/-t requires a number 0-3}"; shift 2 ;;
+    --tier|-t)
+      _tier_val="${2:?--tier/-t requires a number 0-3}"
+      if [[ ! "$_tier_val" =~ ^[0-3]$ ]]; then
+        echo "Error: --tier/-t requires an integer between 0 and 3" >&2
+        exit 1
+      fi
+      INIT_TIER="$_tier_val"
+      shift 2 ;;
     --dry-run|-n)   DRY_RUN=true; shift ;;
     --json|-j)      OUTPUT_JSON=true; shift ;;
     --quiet|-q)     QUIET=true; shift ;;
     --submodules)   SUBMODULES_ONLY=true; shift ;;
     --with-submodules)  USER_SUBMODULE_CHOICE=with; shift ;;
-    --skip-submodules)  USER_SUBMODULE_CHOICE=skip; shift ;;
-    --profile)      PROFILE_OVERRIDE="${2:?--profile requires dev-master or generic}"; shift 2 ;;
-    --brand)        BRAND_OVERRIDE="${2:?--brand requires a string}"; shift 2 ;;
+    --brand)
+      _brand_val="${2:?--brand requires a string}"
+      if [[ ${#_brand_val} -gt 100 || ! "$_brand_val" =~ ^[A-Za-z0-9[:space:]_.-]*$ ]]; then
+        echo "Error: --brand value is invalid (max length 100, alphanumeric/spaces/hyphen/underscore/dot only)" >&2
+        exit 1
+      fi
+      BRAND_OVERRIDE="$_brand_val"
+      shift 2 ;;
+    --unsafe-source-config) UNSAFE_SOURCE_CONFIG=true; shift ;;
+    --yes|-y)       ENV_DOCTOR_ASSUME_YES=true; shift ;;
+    --version|-v)   echo "$ENV_DOCTOR_VERSION"; exit 0 ;;
     --help|-h)
       cat <<'EOF'
 env-doctor — Environment discovery & progressive init
 
 Usage:
   bash env-doctor.sh              # discovery (read-only)
-  bash env-doctor.sh --with-submodules   # include submodule scan (default off in generic repos)
-  bash env-doctor.sh --skip-submodules   # force skip even in dev-master-style trees
+  bash env-doctor.sh --with-submodules   # include submodule scan (default off)
   bash env-doctor.sh -i           # init tier 1
   bash env-doctor.sh -it0         # init tier 0 (venv + core deps only)
   bash env-doctor.sh -it2         # init tier 2 (full tooling + all submodules when enabled)
@@ -279,19 +453,19 @@ Usage:
   bash env-doctor.sh -j           # JSON for CI/agents
   bash env-doctor.sh -q           # exit code only
   bash env-doctor.sh --submodules # private submodule URL check only (SSH hint)
-  bash env-doctor.sh --profile generic
   bash env-doctor.sh --brand myrepo
+  bash env-doctor.sh --version    # print version
 
 Optional repo config (sourced if present): .env-doctor.conf in repo root
-  BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_SHOW_AGENT_RAM, ENV_DOCTOR_HELP_URL
+  BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_HELP_URL
 
 Long forms:
   --init, --tier N, --dry-run, --json, --quiet, --submodules,
-  --with-submodules, --skip-submodules, --profile, --brand, --help
+  --with-submodules, --brand, --version, --help
 
 Short flags:
   -i  init          -t N  tier (0-3)     -n  dry-run
-  -j  json output   -q  quiet            -h  help
+  -j  json output   -q  quiet            -v  version      -h  help
 
 Combined:  -it2 = --init --tier 2    -iqt0 = --init --quiet --tier 0
 
@@ -325,6 +499,7 @@ phase1_shell_os() {
   case "$kernel" in
     Linux)
       if [[ -f /etc/os-release ]]; then
+        # shellcheck disable=SC1091
         os_name="$(. /etc/os-release && echo "$PRETTY_NAME")"
       elif grep -qi microsoft /proc/version 2>/dev/null; then
         os_name="WSL (Linux)"
@@ -509,10 +684,6 @@ phase2_tooling() {
   _check_tool "shellcheck" "shellcheck --version" ""
   _check_tool "yamllint"  "yamllint --version"   ""
 
-  # ── Tier 3: Teaser + shell tooling ──
-  _info "Tier 3" "Project-specific"
-  _check_zen_teaser
-
   # ── Python environment + optional deps (Python projects only) ──
   if _project_has python; then
     _head "Phase 2b: Python Environment"
@@ -560,7 +731,7 @@ phase2_tooling() {
 }
 
 _check_tool() {
-  local name="$1" cmd="$2" label="${3:-$1}"
+  local name="$1" cmd_args="$2" label="${3:-$1}"
   local full_cmd="$name"
 
   if ! command -v "$name" &>/dev/null; then
@@ -571,9 +742,14 @@ _check_tool() {
 
   if command -v "$full_cmd" &>/dev/null; then
     local ver
-    # If using absolute path, we might need to use it in the cmd too
-    local eval_cmd="${cmd/$name/$full_cmd}"
-    ver="$(eval "$eval_cmd" 2>&1 | head -1 | sed 's/.*version //' | sed 's/^v//')" || ver="?"
+    local args=()
+    if [[ "$cmd_args" == *" "* ]]; then
+      local raw_args="${cmd_args#* }"
+      # shellcheck disable=SC2206
+      IFS=' ' read -r -a args <<< "$raw_args"
+    fi
+
+    ver="$("$full_cmd" "${args[@]}" 2>&1 | head -1 | sed 's/.*version //' | sed 's/^v//')" || ver="?"
     _pass "$label" "$ver"
   else
     _warn "$label" "not found"
@@ -637,12 +813,13 @@ _check_pkg_manager() {
 phase3_git() {
   _head "Phase 3: Git & Submodule Discovery"
 
-  cd "$REPO_ROOT"
+  cd "$REPO_ROOT" || { _fail "Directory change" "failed to cd to REPO_ROOT"; return; }
 
   # Remote & branch
   local branch remote
   branch="$(git branch --show-current 2>/dev/null || echo "detached")"
   remote="$(git remote get-url origin 2>/dev/null || echo "none")"
+  remote="$(_redact_git_url "$remote")"
   _pass "Branch" "$branch"
   _pass "Remote" "$remote"
 
@@ -660,7 +837,7 @@ phase3_git() {
   else
     # Submodule classification
     local total=0 initialized=0 uninitialized=0 modified=0
-    local tier0_subs=() tier1_subs=() tier2_subs=() tier3_subs=()
+    local core_subs=() other_subs=()
     local core_repos="${ENV_DOCTOR_CORE_REPOS:-}"
 
     while IFS= read -r line; do
@@ -677,13 +854,9 @@ phase3_git() {
       esac
 
       if [[ -n "$core_repos" ]] && echo "$path" | grep -qE "(${core_repos})$"; then
-        tier0_subs+=("$path")
-      elif [[ "$PROFILE" == dev-master ]] && [[ "$path" == dex/09-repos/* ]]; then
-        tier1_subs+=("$path")
-      elif [[ "$PROFILE" == dev-master ]] && [[ "$path" == dex/06-tools/* ]]; then
-        tier2_subs+=("$path")
+        core_subs+=("$path")
       else
-        tier3_subs+=("$path")
+        other_subs+=("$path")
       fi
     done < <(git submodule status 2>/dev/null || true)
 
@@ -695,10 +868,10 @@ phase3_git() {
     else
       _info "  modified" "$modified"
     fi
-    _info "Tier 0 (core)"    "${#tier0_subs[@]} submodules"
-    _info "Tier 1 (repos)"   "${#tier1_subs[@]} submodules"
-    _info "Tier 2 (tools)"   "${#tier2_subs[@]} submodules"
-    _info "Tier 3 (other)"   "${#tier3_subs[@]} submodules"
+    if [[ -n "$core_repos" ]]; then
+      _info "Core submodules" "${#core_subs[@]}"
+      _info "Other submodules" "${#other_subs[@]}"
+    fi
 
     _check_private_submodules
   fi
@@ -734,7 +907,7 @@ phase3_git() {
 phase4_creds() {
   _head "Phase 4: Credentials & Config"
 
-  cd "$REPO_ROOT"
+  cd "$REPO_ROOT" || { _fail "Directory change" "failed to cd to REPO_ROOT"; return; }
 
   # .env vs env.example
   if [[ -f .env ]]; then
@@ -804,60 +977,6 @@ phase4_creds() {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PHASE 4b: Local AI Stack (LM Studio / OpenAI-compat)
-# ═════════════════════════════════════════════════════════════════════════════
-phase4b_local_ai() {
-  _head "Phase 4b: Local AI Stack"
-
-  local lms_url="${LMSTUDIO_API_URL:-http://localhost:1234/v1}"
-
-  # LM Studio API reachability
-  if curl -sf --connect-timeout 2 "${lms_url}/models" > /dev/null 2>&1; then
-    _pass "LM Studio API" "alive at ${lms_url}"
-
-    local model_count
-    model_count="$(curl -sf "${lms_url}/models" 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("data",[])))' 2>/dev/null || echo 0)"
-    if [[ "$model_count" -gt 0 ]]; then
-      _pass "Loaded models" "${model_count} model(s) available"
-    else
-      _warn "Loaded models" "API is up but no models loaded (run: lms load)"
-    fi
-  else
-    _info "LM Studio API" "not reachable at ${lms_url} (optional — start LM Studio to enable)"
-  fi
-
-  # lms CLI
-  if command -v lms &>/dev/null; then
-    _pass "lms CLI" "$(command -v lms)"
-  else
-    _info "lms CLI" "not in PATH (optional — install from lmstudio.ai)"
-  fi
-
-  # .cursor/mcp.json LM Studio entry
-  local repo_mcp="$REPO_ROOT/.cursor/mcp.json"
-  if [[ -f "$repo_mcp" ]]; then
-    if grep -q '"lmstudio"' "$repo_mcp" 2>/dev/null; then
-      if grep -q '"disabled": true' "$repo_mcp" 2>/dev/null; then
-        _info "MCP lmstudio" 'present but disabled (set "disabled": false to enable)'
-      else
-        _pass "MCP lmstudio" "configured and enabled"
-      fi
-    else
-      _info "MCP lmstudio" "not configured in .cursor/mcp.json"
-    fi
-  fi
-
-  # Task notebooks (dev-master / explicit opt-in only)
-  if [[ "$PROFILE" == dev-master ]] || [[ "${ENV_DOCTOR_SHOW_AGENT_RAM:-}" == true ]]; then
-    if [[ -d "$REPO_ROOT/dex/10-tasks/active" ]]; then
-      _pass "Agent RAM" "dex/10-tasks/active/ exists"
-    else
-      _warn "Agent RAM" "dex/10-tasks/active/ missing"
-    fi
-  fi
-}
-
-# ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Progressive Init (--init only)
 # ═════════════════════════════════════════════════════════════════════════════
 phase5_init() {
@@ -866,7 +985,7 @@ phase5_init() {
   _head "Phase 5: Progressive Init (tier $INIT_TIER)"
   [[ "$DRY_RUN" == "true" ]] && _info "dry-run" "showing planned actions only (no changes)"
 
-  cd "$REPO_ROOT"
+  cd "$REPO_ROOT" || { _fail "Directory change" "failed to cd to REPO_ROOT"; return 1; }
 
   # ── Tier 0: Venv + core deps ──
   if [[ "$INIT_TIER" -ge 0 ]]; then
@@ -946,43 +1065,10 @@ phase5_init() {
         for p in "${core_paths[@]}"; do
           _info "Would run" "git submodule update --init $p"
         done
-        local -a remaining_repos=()
-        while IFS= read -r cl; do
-          [[ -z "$cl" ]] && continue
-          local rp
-          rp="$(_git_config_regexp_value "$cl")"
-          [[ "$rp" == dex/09-repos/* ]] || continue
-          remaining_repos+=("$rp")
-        done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
-        for p in "${remaining_repos[@]}"; do
-          _info "Would run" "git submodule update --init $p"
-        done
       else
         for p in "${core_paths[@]}"; do
           echo "  Init submodule: $p" >&2
-          if ! git submodule update --init "$p" 2>&1; then
-            local url
-            url="$(git config -f .gitmodules --get "submodule.${p}.url" 2>/dev/null || echo "")"
-            if echo "$url" | grep -qiE '(/private/|/internal/|@private\.|[.]private\.)'; then
-              echo "    ⚠️  Private submodule failed (credentials needed)" >&2
-              if [[ -n "${ENV_DOCTOR_HELP_URL:-}" ]]; then
-                echo "    See: $ENV_DOCTOR_HELP_URL" >&2
-              fi
-            fi
-          fi
-        done
-
-        local -a remaining_repos=()
-        while IFS= read -r cl; do
-          [[ -z "$cl" ]] && continue
-          local rp
-          rp="$(_git_config_regexp_value "$cl")"
-          [[ "$rp" == dex/09-repos/* ]] || continue
-          remaining_repos+=("$rp")
-        done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
-
-        for p in "${remaining_repos[@]}"; do
-          if ! git submodule update --init "$p" 2>&1; then
+          if ! _timeout_cmd 30 git submodule update --init "$p" 2>&1; then
             local url
             url="$(git config -f .gitmodules --get "submodule.${p}.url" 2>/dev/null || echo "")"
             if echo "$url" | grep -qiE '(/private/|/internal/|@private\.|[.]private\.)'; then
@@ -1034,20 +1120,28 @@ phase5_init() {
       _pass "Tier 2 init" "planned (dry-run)"
     else
       echo "  Initializing all submodules..." >&2
-      git submodule update --init 2>/dev/null || true
+      _timeout_cmd 60 git submodule update --init 2>/dev/null || true
 
       if command -v brew &>/dev/null; then
         for tool in ripgrep shellcheck yamllint; do
           if ! command -v "$tool" &>/dev/null; then
-            echo "  brew install $tool..." >&2
-            brew install "$tool" 2>/dev/null || true
+            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+              echo "  brew install $tool..." >&2
+              brew install "$tool" 2>/dev/null || true
+            else
+              _warn "Consent required" "Skipping 'brew install $tool' (run with --yes or -y to authorize)"
+            fi
           fi
         done
       elif command -v apt-get &>/dev/null; then
         for tool in ripgrep shellcheck yamllint; do
           if ! command -v "$tool" &>/dev/null; then
-            echo "  apt install $tool..." >&2
-            sudo apt-get install -y "$tool" 2>/dev/null || true
+            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+              echo "  apt install $tool..." >&2
+              sudo apt-get install -y "$tool" 2>/dev/null || true
+            else
+              _warn "Consent required" "Skipping 'sudo apt-get install -y $tool' (run with --yes or -y to authorize)"
+            fi
           fi
         done
       fi
@@ -1104,7 +1198,7 @@ summary() {
 
   if [[ "$OUTPUT_JSON" == "true" ]]; then
     local i
-    printf '{"results":['
+    printf '{"schema":"env-doctor/1","results":['
     for i in "${!JSON_LINES[@]}"; do
       [[ $i -gt 0 ]] && printf ','
       printf '%s' "${JSON_LINES[$i]}"
@@ -1125,12 +1219,13 @@ summary() {
 main() {
   if [[ "$QUIET" == false ]] && [[ "$OUTPUT_JSON" == false ]]; then
     printf "${BOLD}%s${RST} — environment check\n" "${BRAND:-$DOCTOR_NAME}"
-    printf "${DIM}repo: %s  profile: %s  submodules: %s${RST}\n" "$REPO_ROOT" "$PROFILE" "$WITH_SUBMODULES"
+    printf "${DIM}repo: %s  submodules: %s${RST}\n" "$REPO_ROOT" "$WITH_SUBMODULES"
   fi
 
   # Handle --submodules-only flag
   if [[ "$SUBMODULES_ONLY" == "true" ]]; then
     _check_private_submodules
+    trap - ERR EXIT
     return
   fi
 
@@ -1138,10 +1233,10 @@ main() {
   phase2_tooling
   phase3_git
   phase4_creds
-  phase4b_local_ai
   phase5_init
   summary
 
+  trap - ERR EXIT
   [[ "$ISSUES" -gt 0 ]] && exit 1
   exit 0
 }

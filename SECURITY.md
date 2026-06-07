@@ -1,23 +1,22 @@
-# Security policy
+# Security Policy
 
-Vulnerability reporting for **[env-doctor](https://github.com/k-dot-greyz/env-doctor)**.
+Vulnerability reporting for **env-doctor**.
 
-## Supported versions
+## Supported Versions
 
 Security fixes land on the default branch (currently `main`).
 
-## Reporting a vulnerability
+## Threat Model
 
-**Do not** open a public issue for undisclosed security problems (credentials, RCE, sensitive data exposure, or supply-chain issues in code or workflows maintained here).
+For a comprehensive analysis of trust boundaries, threat vectors, and mitigations implemented in `env-doctor`, please refer to our [Threat Model](docs/THREAT_MODEL.md).
 
-### Preferred: GitHub
+## Reporting a Vulnerability
 
-1. **[Report a vulnerability](https://github.com/k-dot-greyz/env-doctor/security/advisories/new)**, or
-2. **Security** → **Advisories** in the GitHub UI.
+**Do not** open a public issue for undisclosed security problems (credentials, sensitive data exposure, or supply-chain issues in code or workflows maintained here).
 
-If that is unavailable, contact **@k-dot-greyz** via GitHub without posting exploit details in public.
+Please report any security vulnerabilities by contacting the maintainers directly or opening a private security advisory on GitHub.
 
-### What to include
+### What to Include
 
 - Short description and impact.
 - Steps to reproduce or a proof-of-concept.
@@ -27,9 +26,9 @@ We will coordinate disclosure when we can; there is no guaranteed response-time 
 
 ## Scope
 
-- **In scope:** This repository’s own code, configuration, and GitHub Actions.
-- **Out of scope:** Third-party packages and upstream projects — use their reporting channels.
+- **In Scope:** This repository's own code, configuration, and GitHub Actions.
+- **Out of Scope:** Third-party packages and upstream projects — use their reporting channels.
 
-## Good faith
+## Good Faith
 
 Security research is welcome when lawful and non-destructive. See [LICENSE](./LICENSE).

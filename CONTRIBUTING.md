@@ -2,32 +2,27 @@
 
 Welcome to the `env-doctor` repository! We are excited to have you contribute.
 
-`env-doctor` is a **single-file Bash CLI** (`env-doctor.sh`) for environment discovery and optional progressive init. It has zero extra dependencies on the read-only pass (optional `python3` for LM Studio model counts). To keep it portable across generic repos and the [dev-master](https://github.com/k-dot-greyz/dev-master) superproject, all contributions must respect repository boundaries and the architectural protocols below.
+`env-doctor` is a **single-file Bash CLI** (`env-doctor.sh`) for environment discovery and optional progressive init. It has zero extra dependencies on the read-only pass. To keep it portable across generic repositories, all contributions must respect repository boundaries and the architectural protocols below.
 
-## Repository layout
+## Repository Layout
 
 | Path | Purpose |
 |------|---------|
 | `env-doctor.sh` | Canonical script — all runtime logic lives here |
 | `docs/README.md` | Flags, config variables, quickstart |
-| `docs/ARCHITECTURE.md` | Phases, JSON envelope, profiles, extension points |
+| `docs/ARCHITECTURE.md` | Phases, JSON envelope, extension points |
 | `docs/UX_AUDIT.md` | Reusability notes and UX history |
-| `README.md` | Top-level overview and dev-master consumption notes |
+| `README.md` | Top-level overview |
 | `SECURITY.md` | Vulnerability reporting policy |
-
-There is **no in-repo test suite**. When vendored under dev-master, pytest coverage lives in the superproject at `dex/10-tests/test_env_doctor_*.py`.
 
 ---
 
-## 🌌 1. The Prime Directive: Pure Code in Submodules, Guides in Superproject
-
-If you are developing `env-doctor` as part of a larger monorepo (such as `dev-master`), you must respect the boundary between the monorepo and this submodule:
+## 🌌 1. The Prime Directive: Pure Code in Submodules
 
 * **Pure Code Only**: This repository must only contain pure code changes, standard open-source documentation, and configurations that are universally applicable to `env-doctor`.
 * **No Monorepo Pollution**: NEVER commit internal monorepo-specific documentation, fork-specific guides, or private environment configurations into this repository.
-* **Guides Live in Superproject**: All internal guides, monorepo-specific notes, and fork-specific instructions must live in the superproject under `dex/03-docs/guides/`.
 
-### 🔄 The Submodule Fork-and-PR Workflow
+### 🔄 The Fork-and-PR Workflow
 
 When contributing upstream, follow this precise workflow:
 
@@ -37,7 +32,7 @@ When contributing upstream, follow this precise workflow:
    ```bash
    git remote -v
    # If upstream is missing, add it:
-   git remote add upstream https://github.com/k-dot-greyz/env-doctor.git
+   git remote add upstream https://github.com/greyz/env-doctor.git
    ```
 
 2. **Create a Clean Feature Branch**:
@@ -68,24 +63,6 @@ When contributing upstream, follow this precise workflow:
 6. **Create the Pull Request**:
    Create the PR against the upstream repository on GitHub.
 
-### 🛠️ Cleaning Up History After a Boundary Leak
-
-If you accidentally committed internal documentation or unrelated files to this repository, clean up the branch history before pushing:
-
-```bash
-# Soft reset to upstream/main (keeps your changes staged)
-git reset --soft upstream/main
-
-# Move internal files out of the submodule to the superproject, or discard unwanted files
-git restore <file>
-
-# Re-commit the clean diff
-git commit -m "feat(doctor): clean implementation"
-
-# Force-push to rewrite remote history
-git push origin feat/your-feature-name --force
-```
-
 ---
 
 ## 🏛️ 2. GlitchWorks Agnostic Architecture Protocol
@@ -95,12 +72,12 @@ All development within `env-doctor` must strictly adhere to the **GlitchWorks Ag
 ### 2.1. Zero Hardcoding (Dynamic State Configuration)
 
 * **Rule**: No magic strings, static network ports, or fixed directory paths shall exist within the domain logic.
-* **Application**: `env-doctor` must never contain hardcoded hostnames, ports, or superproject-specific paths. All configurations must be dynamically configured via environment variables, configuration files, or command-line arguments.
+* **Application**: `env-doctor` must never contain hardcoded hostnames, ports, or monorepo-specific paths. All configurations must be dynamically configured via environment variables, configuration files, or command-line arguments.
 
 ### 2.2. Polymorphism by Default (Interface-Driven Contracts)
 
 * **Rule**: Depend on abstractions, not concretions.
-* **Application**: External tools (`git`, `python3`, `gh`, Docker) are invoked through small helper functions (`_check_tool`, `_pass`, `_warn`, etc.) so behavior stays consistent across human and agent callers. Prefer config-driven branches (`ENV_DOCTOR_*`, `.env-doctor.conf`, `--profile`) over hardcoded repo-specific logic.
+* **Application**: External tools (`git`, `python3`, `gh`, Docker) are invoked through small helper functions (`_check_tool`, `_pass`, `_warn`, etc.) so behavior stays consistent across human and agent callers. Prefer config-driven branches (`ENV_DOCTOR_*`, `.env-doctor.conf`) over hardcoded repo-specific logic.
 
 ### 2.3. Open Piping (Strict Inter-Process Communication)
 
@@ -134,24 +111,13 @@ All development within `env-doctor` must strictly adhere to the **GlitchWorks Ag
 From this repository root:
 
 ```bash
-# Smoke: help and agent-safe JSON (generic profile, no submodule scan)
+# Smoke: help and agent-safe JSON (no submodule scan)
 bash env-doctor.sh --help
-bash env-doctor.sh --json --quiet --skip-submodules
+bash env-doctor.sh --json --quiet
 
 # Optional static analysis (recommended when editing env-doctor.sh)
 shellcheck env-doctor.sh
 ```
-
-When developing inside the dev-master superproject (after syncing this repo into `dex/09-repos/env-doctor` or `dex/04-scripts/env-doctor.sh`):
-
-```bash
-PYTHONPATH=dex/05-code/legacy_infrastructure pytest \
-  dex/10-tests/test_env_doctor_ux_security.py \
-  dex/10-tests/test_env_doctor_json_security.py \
-  --no-cov
-```
-
-After merging to `main` here, bump the submodule pointer in dev-master (see dev-master `dex/03-docs/guides/SUBMODULE_BUMP.md`).
 
 ---
 
@@ -159,9 +125,9 @@ After merging to `main` here, bump the submodule pointer in dev-master (see dev-
 
 Before submitting your PR, please verify:
 
-* Are all variables and paths initialized dynamically or via configuration (`.env-doctor.conf`, `ENV_DOCTOR_*`, `--profile`)?
-* Is the script decoupled from any specific monorepo path (no hardcoded `dex/` paths in core logic)?
-* Does `--json --quiet --skip-submodules` exit 0 and produce parseable JSON?
+* Are all variables and paths initialized dynamically or via configuration (`.env-doctor.conf`, `ENV_DOCTOR_*`)?
+* Is the script decoupled from any specific monorepo path (no hardcoded monorepo paths in core logic)?
+* Does `--json --quiet` exit 0 and produce parseable JSON?
 * Does output avoid leaking credentials, tokens, or private URLs with embedded secrets?
 * Can this logic be triggered headlessly (`--json`, `--quiet`) without refactoring?
 * Are CLI flags and env vars validated at the boundary before use?

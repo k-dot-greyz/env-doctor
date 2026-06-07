@@ -29,4 +29,6 @@ When vendored under [dev-master](https://github.com/k-dot-greyz/dev-master):
 
 ## Develop upstream
 
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the fork-and-PR workflow, architecture rules, and local verification commands.
+
 Edit `env-doctor.sh` here, push to `main`, then bump the submodule pointer in dev-master (see dev-master `dex/03-docs/guides/SUBMODULE_BUMP.md`).

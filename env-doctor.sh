@@ -1148,7 +1148,7 @@ phase5_init() {
     else
       echo "  Initializing all submodules..." >&2
       _timeout_cmd 60 git submodule update --init 2>/dev/null || true
-  
+
       if command -v brew &>/dev/null; then
         for tool in ripgrep shellcheck yamllint; do
           if ! command -v "$tool" &>/dev/null; then

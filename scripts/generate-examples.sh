@@ -86,7 +86,11 @@ bash ./env-doctor.sh --with-submodules --json > "${EXAMPLES_DIR}/sample-json-out
 
 # Format the JSON if python3 is available
 if command -v python3 &>/dev/null; then
-  python3 -m json.tool "${EXAMPLES_DIR}/sample-json-output.json" > "${EXAMPLES_DIR}/sample-json-output.json.tmp" 2>/dev/null && mv "${EXAMPLES_DIR}/sample-json-output.json.tmp" "${EXAMPLES_DIR}/sample-json-output.json" || true
+  if python3 -m json.tool "${EXAMPLES_DIR}/sample-json-output.json" > "${EXAMPLES_DIR}/sample-json-output.json.tmp" 2>/dev/null; then
+    mv "${EXAMPLES_DIR}/sample-json-output.json.tmp" "${EXAMPLES_DIR}/sample-json-output.json"
+  else
+    rm -f "${EXAMPLES_DIR}/sample-json-output.json.tmp"
+  fi
 fi
 
 echo "Examples generated successfully in ${EXAMPLES_DIR}:"

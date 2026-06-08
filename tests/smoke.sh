@@ -15,6 +15,10 @@ echo "env-doctor smoke/integration tests (script: $CANONICAL_SCRIPT)"
 # ── CLI / argv ───────────────────────────────────────────────────────────────
 assert_exit "--help exits 0" 0 bash "$CANONICAL_SCRIPT" --help
 assert_exit "unknown arg exits 1" 1 bash "$CANONICAL_SCRIPT" --not-a-flag
+assert_exit "--safety exits 0" 0 bash "$CANONICAL_SCRIPT" --safety
+assert_exit "--about exits 0" 0 bash "$CANONICAL_SCRIPT" --about
+assert_exit "--print-config-template exits 0" 0 bash "$CANONICAL_SCRIPT" --print-config-template
+assert_exit "--print-agent-template exits 0" 0 bash "$CANONICAL_SCRIPT" --print-agent-template
 
 # Combined short flags: -jq should emit JSON only (no banner noise on stdout)
 tmp_json="$(mktemp)"

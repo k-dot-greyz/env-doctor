@@ -1,0 +1,60 @@
+Acme Core Platform — environment check
+repo: /private/var/folders/01/64wqp68j2p9fg5_gcp2jvtx40000gn/T/tmp.wUJ9mVvaXw  submodules: true
+
+── Phase 1: Shell & OS Discovery ──
+  [PASS]  OS                           macOS 26.5.1 (arm64)
+  [PASS]  Shell                        bash 3.2.57(1)-release
+  [PASS]  Shell configs found          .bashrc .bash_profile .zshrc .zprofile .profile
+  [PASS]  Alias shadows                none detected
+
+── Phase 2: Tooling Discovery ──
+  [info]  Project types                python
+  [info]  Tier 0                       Required tools
+  [PASS]  git                          2.50.1 (Apple Git-155)
+  [PASS]  python (python3.14)          3.14.5
+  [PASS]  pkg manager (pip)            pip 26.1.1 from ~/dev/Code/cursor-hackathon/dev-master/.venv/lib/python3.14/site-packages/pip (python 3.14)
+  [info]  Tier 1                       Recommended tools
+  [PASS]  docker                       29.4.3, build 055a478
+  [PASS]  GitHub CLI                   2.93.0 (2026-05-27)
+  [PASS]  pre-commit                   pre-commit 4.6.0
+  [info]  Tier 2                       Dev extras
+  [PASS]  ripgrep                      ripgrep 15.1.0
+  [PASS]  black                        black, 26.3.1 (compiled: yes)
+  [PASS]  ruff                         ruff 0.15.12
+  [PASS]  mypy                         mypy 2.0.0 (compiled: yes)
+  [PASS]  pytest                       pytest 9.0.3
+  [WARN]  mkdocs                       not found
+  [PASS]  shellcheck                   ShellCheck - shell script analysis tool
+  [PASS]  yamllint                     yamllint 1.38.0
+
+── Phase 2b: Python Environment ──
+  [WARN]  Virtualenv                   no .venv or venv directory found
+  [WARN]  Python deps (ENV_DOCTOR_PYTHON_DEPS) not all importable (venv + pip install)
+
+── Phase 3: Git & Submodule Discovery ──
+  [PASS]  Branch                       main
+  [PASS]  Remote                       none
+  [WARN]  Working tree                 5+ uncommitted changes
+  [PASS]  Submodules total             0
+  [info]    initialized                0
+  [info]    uninitialized              0
+  [info]    modified                   0
+  [info]  Core submodules              0
+  [info]  Other submodules             0
+  [PASS]  Private submodules           none detected
+  [PASS]  Orphan gitlinks              none
+
+── Phase 4: Credentials & Config ──
+  [PASS]  .env                         exists
+  [WARN]  .env missing keys            1 keys not set (vs env.example)
+  [WARN]  .env placeholders            contains mock/placeholder values
+  [PASS]  gh auth                      authenticated
+  [WARN]  Docker daemon                not reachable (start Docker Desktop or check socket)
+  [PASS]  MCP config                   no placeholder patterns detected
+
+── Summary ──
+  [WARN]  Status                       7 warning(s), 0 failures
+
+  To fix issues, run: env-doctor.sh --init
+  For full setup:     env-doctor.sh --init --tier 2
+

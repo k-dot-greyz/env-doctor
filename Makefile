@@ -16,9 +16,10 @@ test:
 	bash tests/run.sh
 
 lint:
-	shellcheck env-doctor.sh release.sh tests/*.sh
+	shellcheck env-doctor.sh release.sh scripts/generate-examples.sh tests/*.sh
 
 ci: lint test
 
 release:
+	bash scripts/generate-examples.sh
 	bash release.sh

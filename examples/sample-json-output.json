@@ -1,0 +1,248 @@
+{
+    "schema": "env-doctor/1",
+    "results": [
+        {
+            "type": "section",
+            "key": "Phase 1: Shell & OS Discovery",
+            "value": ""
+        },
+        {
+            "type": "pass",
+            "key": "OS",
+            "value": "macOS 26.5.1 (arm64)"
+        },
+        {
+            "type": "pass",
+            "key": "Shell",
+            "value": "bash 3.2.57(1)-release"
+        },
+        {
+            "type": "pass",
+            "key": "Shell configs found",
+            "value": ".bashrc .bash_profile .zshrc .zprofile .profile"
+        },
+        {
+            "type": "pass",
+            "key": "Alias shadows",
+            "value": "none detected"
+        },
+        {
+            "type": "section",
+            "key": "Phase 2: Tooling Discovery",
+            "value": ""
+        },
+        {
+            "type": "info",
+            "key": "Project types",
+            "value": "python"
+        },
+        {
+            "type": "info",
+            "key": "Tier 0",
+            "value": "Required tools"
+        },
+        {
+            "type": "pass",
+            "key": "git",
+            "value": "2.50.1 (Apple Git-155)"
+        },
+        {
+            "type": "pass",
+            "key": "python (python3.14)",
+            "value": "3.14.5"
+        },
+        {
+            "type": "pass",
+            "key": "pkg manager (pip)",
+            "value": "pip 26.1.1 from ~/dev/Code/cursor-hackathon/dev-master/.venv/lib/python3.14/site-packages/pip (python 3.14)"
+        },
+        {
+            "type": "info",
+            "key": "Tier 1",
+            "value": "Recommended tools"
+        },
+        {
+            "type": "pass",
+            "key": "docker",
+            "value": "29.4.3, build 055a478"
+        },
+        {
+            "type": "pass",
+            "key": "GitHub CLI",
+            "value": "2.93.0 (2026-05-27)"
+        },
+        {
+            "type": "pass",
+            "key": "pre-commit",
+            "value": "pre-commit 4.6.0"
+        },
+        {
+            "type": "info",
+            "key": "Tier 2",
+            "value": "Dev extras"
+        },
+        {
+            "type": "pass",
+            "key": "ripgrep",
+            "value": "ripgrep 15.1.0"
+        },
+        {
+            "type": "pass",
+            "key": "black",
+            "value": "black, 26.3.1 (compiled: yes)"
+        },
+        {
+            "type": "pass",
+            "key": "ruff",
+            "value": "ruff 0.15.12"
+        },
+        {
+            "type": "pass",
+            "key": "mypy",
+            "value": "mypy 2.0.0 (compiled: yes)"
+        },
+        {
+            "type": "pass",
+            "key": "pytest",
+            "value": "pytest 9.0.3"
+        },
+        {
+            "type": "warn",
+            "key": "mkdocs",
+            "value": "not found"
+        },
+        {
+            "type": "pass",
+            "key": "shellcheck",
+            "value": "ShellCheck - shell script analysis tool"
+        },
+        {
+            "type": "pass",
+            "key": "yamllint",
+            "value": "yamllint 1.38.0"
+        },
+        {
+            "type": "section",
+            "key": "Phase 2b: Python Environment",
+            "value": ""
+        },
+        {
+            "type": "warn",
+            "key": "Virtualenv",
+            "value": "no .venv or venv directory found"
+        },
+        {
+            "type": "warn",
+            "key": "Python deps (ENV_DOCTOR_PYTHON_DEPS)",
+            "value": "not all importable (venv + pip install)"
+        },
+        {
+            "type": "section",
+            "key": "Phase 3: Git & Submodule Discovery",
+            "value": ""
+        },
+        {
+            "type": "pass",
+            "key": "Branch",
+            "value": "main"
+        },
+        {
+            "type": "pass",
+            "key": "Remote",
+            "value": "none"
+        },
+        {
+            "type": "warn",
+            "key": "Working tree",
+            "value": "5+ uncommitted changes"
+        },
+        {
+            "type": "pass",
+            "key": "Submodules total",
+            "value": "0"
+        },
+        {
+            "type": "info",
+            "key": "  initialized",
+            "value": "0"
+        },
+        {
+            "type": "info",
+            "key": "  uninitialized",
+            "value": "0"
+        },
+        {
+            "type": "info",
+            "key": "  modified",
+            "value": "0"
+        },
+        {
+            "type": "info",
+            "key": "Core submodules",
+            "value": "0"
+        },
+        {
+            "type": "info",
+            "key": "Other submodules",
+            "value": "0"
+        },
+        {
+            "type": "pass",
+            "key": "Private submodules",
+            "value": "none detected"
+        },
+        {
+            "type": "pass",
+            "key": "Orphan gitlinks",
+            "value": "none"
+        },
+        {
+            "type": "section",
+            "key": "Phase 4: Credentials & Config",
+            "value": ""
+        },
+        {
+            "type": "pass",
+            "key": ".env",
+            "value": "exists"
+        },
+        {
+            "type": "warn",
+            "key": ".env missing keys",
+            "value": "1 keys not set (vs env.example)"
+        },
+        {
+            "type": "warn",
+            "key": ".env placeholders",
+            "value": "contains mock/placeholder values"
+        },
+        {
+            "type": "pass",
+            "key": "gh auth",
+            "value": "authenticated"
+        },
+        {
+            "type": "warn",
+            "key": "Docker daemon",
+            "value": "not reachable (start Docker Desktop or check socket)"
+        },
+        {
+            "type": "pass",
+            "key": "MCP config",
+            "value": "no placeholder patterns detected"
+        },
+        {
+            "type": "section",
+            "key": "Summary",
+            "value": ""
+        },
+        {
+            "type": "status",
+            "key": "Status",
+            "value": "7 warning(s), 0 failures"
+        }
+    ],
+    "issues": 0,
+    "warnings": 7,
+    "ok": true
+}

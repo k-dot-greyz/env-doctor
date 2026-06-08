@@ -1,5 +1,5 @@
 Acme Core Platform — environment check
-repo: /private/var/folders/01/64wqp68j2p9fg5_gcp2jvtx40000gn/T/tmp.wUJ9mVvaXw  submodules: true
+repo: /private/var/folders/01/64wqp68j2p9fg5_gcp2jvtx40000gn/T/tmp.Nt4EdKnXhU  submodules: true
 
 ── Phase 1: Shell & OS Discovery ──
   [PASS]  OS                           macOS 26.5.1 (arm64)

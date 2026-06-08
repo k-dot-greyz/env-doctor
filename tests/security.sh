@@ -70,7 +70,7 @@ echo "Running env-doctor security and boundary test suite..."
 # ── Test 1: Version ──
 echo "Test 1: Version flag"
 ver="$(bash ./env-doctor.sh --version)"
-_assert_equals "Version is 1.1.0" "1.1.0" "$ver"
+_assert_equals "Version is 1.2.0" "1.2.0" "$ver"
 
 # ── Test 2: Invalid Tier Validation ──
 echo "Test 2: Invalid tier validation"

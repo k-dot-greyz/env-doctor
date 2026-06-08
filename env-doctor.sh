@@ -65,7 +65,7 @@ ISSUES=0
 WARNINGS=0
 JSON_LINES=()
 DOCTOR_NAME="env-doctor"
-ENV_DOCTOR_VERSION="1.1.0"
+ENV_DOCTOR_VERSION="1.2.0"
 UNSAFE_SOURCE_CONFIG=false
 ENV_DOCTOR_ASSUME_YES=false
 # Color codes default to empty (no color) until _setup_colors runs.

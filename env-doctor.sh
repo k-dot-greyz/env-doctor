@@ -923,7 +923,10 @@ _gh_auth_out() {
 
 _gh_has_scope() {
   local scope="$1" auth_out="$2"
-  echo "$auth_out" | grep -qE "(Token scopes:|${scope})"
+  local scopes_line
+  scopes_line="$(echo "$auth_out" | grep 'Token scopes:' || true)"
+  [[ -z "$scopes_line" ]] && return 1
+  echo "$scopes_line" | grep -qE "(^|[,[:space:]])${scope}([,[:space:]]|$)"
 }
 
 _suggest_dinit_auth() {
@@ -1353,8 +1356,8 @@ summary() {
 
   if [[ "$DO_INIT" == false ]] && [[ "$QUIET" == false ]]; then
     if [[ -n "$ENV_DOCTOR_NEXT_CMD" ]]; then
-      printf "\n${Y}  blocker:${RST} GitHub auth / git URLs need fixing\n"
-      printf "${DIM}  next: %s${RST}\n\n" "$ENV_DOCTOR_NEXT_CMD"
+      printf '\n%s  blocker:%s GitHub auth / git URLs need fixing\n' "${Y}" "${RST}"
+      printf '%s  next: %s%s\n\n' "${DIM}" "$ENV_DOCTOR_NEXT_CMD" "${RST}"
     else
       printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
       printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"

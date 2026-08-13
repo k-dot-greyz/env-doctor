@@ -705,6 +705,62 @@ _check_zen_teaser() {
   fi
 }
 
+# ── Virtualenv path helpers (Unix bin/ vs Windows Scripts/) ─────────────────
+_venv_bin_dir() {
+  local venv_dir="$1"
+  if [[ -f "$venv_dir/Scripts/python.exe" ]] || [[ -f "$venv_dir/Scripts/python" ]]; then
+    printf '%s\n' "$venv_dir/Scripts"
+  elif [[ -f "$venv_dir/bin/python" ]] || [[ -f "$venv_dir/bin/python3" ]]; then
+    printf '%s\n' "$venv_dir/bin"
+  elif [[ -d "$venv_dir/Scripts" ]]; then
+    printf '%s\n' "$venv_dir/Scripts"
+  elif [[ -d "$venv_dir/bin" ]]; then
+    printf '%s\n' "$venv_dir/bin"
+  fi
+}
+
+_venv_python() {
+  local venv_dir="$1" bindir candidate
+  bindir="$(_venv_bin_dir "$venv_dir")"
+  [[ -z "$bindir" ]] && return 1
+  for candidate in python python3 python.exe; do
+    if [[ -f "$bindir/$candidate" ]]; then
+      printf '%s\n' "$bindir/$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_venv_tool_path() {
+  local venv_dir="$1" name="$2" bindir
+  bindir="$(_venv_bin_dir "$venv_dir")"
+  [[ -z "$bindir" ]] && return 1
+  if [[ -f "$bindir/$name" ]]; then
+    printf '%s\n' "$bindir/$name"
+    return 0
+  fi
+  if [[ -f "$bindir/${name}.exe" ]]; then
+    printf '%s\n' "$bindir/${name}.exe"
+    return 0
+  fi
+  return 1
+}
+
+_venv_activate() {
+  local venv_dir="${1:-.venv}" activate_script=""
+  if [[ -f "$venv_dir/Scripts/activate" ]]; then
+    activate_script="$venv_dir/Scripts/activate"
+  elif [[ -f "$venv_dir/bin/activate" ]]; then
+    activate_script="$venv_dir/bin/activate"
+  else
+    _fail "Venv activation" "no activate script in $venv_dir (expected Scripts/activate or bin/activate)"
+    return 1
+  fi
+  # shellcheck disable=SC1090,SC1091
+  source "$activate_script"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Core Tooling Discovery
 # ═════════════════════════════════════════════════════════════════════════════
@@ -789,11 +845,11 @@ phase2_tooling() {
       _warn "Virtualenv" "no .venv or venv directory found"
     fi
 
-    local python_to_use="python3"
-    if [[ -f "$REPO_ROOT/.venv/bin/python" ]]; then
-      python_to_use="$REPO_ROOT/.venv/bin/python"
-    elif [[ -f "$REPO_ROOT/venv/bin/python" ]]; then
-      python_to_use="$REPO_ROOT/venv/bin/python"
+    local python_to_use="python3" venv_py=""
+    if venv_py="$(_venv_python "$REPO_ROOT/.venv" 2>/dev/null)"; then
+      python_to_use="$venv_py"
+    elif venv_py="$(_venv_python "$REPO_ROOT/venv" 2>/dev/null)"; then
+      python_to_use="$venv_py"
     fi
 
     if [[ -n "${ENV_DOCTOR_PYTHON_DEPS:-}" ]]; then
@@ -829,8 +885,9 @@ _check_tool() {
   local full_cmd="$name"
 
   if ! command -v "$name" &>/dev/null; then
-    if [[ -f "$REPO_ROOT/.venv/bin/$name" ]]; then
-      full_cmd="$REPO_ROOT/.venv/bin/$name"
+    local venv_tool=""
+    if venv_tool="$(_venv_tool_path "$REPO_ROOT/.venv" "$name" 2>/dev/null)"; then
+      full_cmd="$venv_tool"
     fi
   fi
 
@@ -1080,6 +1137,7 @@ phase4_creds() {
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Progressive Init (--init only)
 # ═════════════════════════════════════════════════════════════════════════════
+
 phase5_init() {
   [[ "$DO_INIT" == false ]] && return
 
@@ -1125,8 +1183,7 @@ phase5_init() {
         echo "  Creating .venv with $BEST_PYTHON..." >&2
         "$BEST_PYTHON" -m venv .venv
       fi
-      # shellcheck disable=SC1091
-      source .venv/bin/activate
+      _venv_activate .venv || return 1
 
       if [[ "${PKG_MANAGER:-}" == "poetry" ]]; then
         echo "  Installing deps via poetry..." >&2
@@ -1188,8 +1245,7 @@ phase5_init() {
       _pass "Tier 1 init" "planned (dry-run)"
     else
       if [[ -d .venv ]]; then
-        # shellcheck disable=SC1091
-        source .venv/bin/activate
+        _venv_activate .venv || return 1
         echo "  Installing dev extras..." >&2
         pip install -e ".[dev]" --quiet 2>/dev/null || true
       fi
@@ -1385,7 +1441,7 @@ main() {
   phase2_tooling
   phase3_git
   phase4_creds
-  phase5_init
+  phase5_init || :
   summary
 
   trap - ERR EXIT

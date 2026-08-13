@@ -1353,7 +1353,7 @@ summary() {
 
   if [[ "$DO_INIT" == false ]] && [[ "$QUIET" == false ]]; then
     if [[ -n "$ENV_DOCTOR_NEXT_CMD" ]]; then
-      printf "\n${Y}  blocker:${RST} GitHub auth / git URLs need fixing\n"
+      printf "\n%s  blocker:%s GitHub auth / git URLs need fixing\n" "$Y" "$RST"
       printf "${DIM}  next: %s${RST}\n\n" "$ENV_DOCTOR_NEXT_CMD"
     else
       printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"

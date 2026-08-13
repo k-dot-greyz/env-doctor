@@ -51,6 +51,31 @@ If Env Doctor detects missing virtual environments or uninstalled Python depende
   bash env-doctor.sh --init --tier 1 --yes
   ```
 
+### Full Ubuntu / Linux hydration (tier 2–3)
+
+For a complete developer environment on Ubuntu, Debian, or Mint:
+
+1. **Preview** what tier 3 will do (PATH, profile hooks, Docker):
+   ```bash
+   bash env-doctor.sh --init --tier 3 --dry-run
+   # or: make hydrate-dry
+   ```
+
+2. **Configure** optional persistence in `.env-doctor.conf`:
+   ```bash
+   ENV_DOCTOR_MIN_PYTHON_MINOR=14
+   ENV_DOCTOR_PERSIST_PATH=true    # append PATH block to ~/.bashrc on tier 3
+   ENV_DOCTOR_BOOT_AUDIT=true      # install login audit via scripts/env-config.sh
+   ```
+
+3. **Execute** full hydration (Python 3.14+, apt dev tools, venv, PATH):
+   ```bash
+   bash env-doctor.sh --init --tier 3 --yes
+   # or: make setup
+   ```
+
+Tier 2 installs native packages via `apt` on Linux (ripgrep, shellcheck, yamllint, Python 3.14). Tier 3 hydrates session PATH, optionally persists it to your shell profile, and starts Docker Compose services if present.
+
 ## 4. Align Your AI Coding Agents
 
 AI coding agents (such as Cursor, Claude Code, or Copilot) can get stuck in infinite loops when local environments are broken. Give them auto-healing capabilities:

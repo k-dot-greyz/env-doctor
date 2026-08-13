@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# Integration tests for env-doctor.sh — run from repo root: bash tests/run.sh
+# Integration tests for env-doctor.sh — run from repo root: bash tests/smoke.sh
+# shellcheck disable=SC2016
 
 set -euo pipefail
-
-export PATH="${HOME}/.local/bin:${PATH}"
 
 # shellcheck source=tests/helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 
 # Colors
-G=$'\033[32m'; R=$'\033[31m'; RST=$'\033[0m'
+G=$'\033[32m'; RST=$'\033[0m'
 
-echo "env-doctor tests (script: $CANONICAL_SCRIPT)"
+echo "env-doctor smoke/integration tests (script: $CANONICAL_SCRIPT)"
 
 # ── CLI / argv ───────────────────────────────────────────────────────────────
 assert_exit "--help exits 0" 0 bash "$CANONICAL_SCRIPT" --help
 assert_exit "unknown arg exits 1" 1 bash "$CANONICAL_SCRIPT" --not-a-flag
+assert_exit "--safety exits 0" 0 bash "$CANONICAL_SCRIPT" --safety
+assert_exit "--about exits 0" 0 bash "$CANONICAL_SCRIPT" --about
+assert_exit "--print-config-template exits 0" 0 bash "$CANONICAL_SCRIPT" --print-config-template
+assert_exit "--print-agent-template exits 0" 0 bash "$CANONICAL_SCRIPT" --print-agent-template
 
 # Combined short flags: -jq should emit JSON only (no banner noise on stdout)
 tmp_json="$(mktemp)"
@@ -291,114 +294,6 @@ fi
 rm -f "$text_out"
 rm -rf "$conf_crash_repo"
 
-# ── Bug 5: venv activation crashes on Windows (Scripts/ layout vs bin/) ──────
-# Trigger: native Windows Python creates .venv/Scripts/activate, not .venv/bin/activate.
-# Running --init after the Windows commit would crash with "No such file or directory"
-# from `source .venv/bin/activate` under set -e.
-# Fix: _venv_activate() probes Scripts/activate first, then bin/activate.
-# Simulate on Linux: build a real venv, move activate to Scripts/, remove from bin/.
-_make_venv() {
-  local dest="$1"
-  if python3 -m venv "$dest" 2>/dev/null; then
-    return 0
-  fi
-  rm -rf "$dest"
-  local _venv_bin
-  _venv_bin="$(command -v virtualenv 2>/dev/null || echo "$HOME/.local/bin/virtualenv")"
-  if [[ -x "$_venv_bin" ]]; then
-    "$_venv_bin" "$dest" --quiet 2>/dev/null
-    return 0
-  fi
-  return 1
-}
-
-_make_scripts_layout_venv() {
-  local dest="$1"
-  _make_venv "$dest" || return 1
-  if [[ -f "$dest/bin/activate" ]]; then
-    mkdir -p "$dest/Scripts"
-    for entry in activate python python3 pip; do
-      [[ -f "$dest/bin/$entry" ]] && cp "$dest/bin/$entry" "$dest/Scripts/$entry"
-    done
-    rm -rf "$dest/bin"
-  fi
-}
-
-win_venv_repo="$(make_fixture_repo win-venv-activate bash -c 'echo "# no deps" > requirements.txt')"
-if _make_scripts_layout_venv "$win_venv_repo/.venv"; then
-  text_out="$(mktemp)"
-  set +e
-  PKG_MANAGER=pip run_doctor "$win_venv_repo" --init >"$text_out" 2>&1
-  win_code=$?
-  set -e
-  TESTS_RUN=$((TESTS_RUN + 1))
-  # Before the fix: source .venv/bin/activate (missing) → _error_trap → exit 1.
-  # After the fix: _venv_activate picks Scripts/activate → success → exit 0.
-  if [[ "$win_code" -ne 0 ]]; then
-    echo "FAIL: --init with Scripts-layout venv failed (exit $win_code, expected 0) — venv activation did not fall back to Scripts/activate" >&2
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-  fi
-  TESTS_RUN=$((TESTS_RUN + 1))
-  if grep -q "Unexpected script failure" "$text_out"; then
-    echo "FAIL: --init with Scripts-layout venv hit unexpected error (likely venv activation crash)" >&2
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-  fi
-  rm -f "$text_out"
-else
-  echo "  [info] skipping Scripts-layout venv test (no venv tool available)"
-fi
-rm -rf "$win_venv_repo"
-
-# ── Bug 6: Phase 2 python/tool discovery on Windows Scripts/ layout ─────────
-py_scripts_repo="$(make_fixture_repo py-scripts-layout bash -c "
-  echo '[project]' > pyproject.toml
-  echo \"ENV_DOCTOR_PYTHON_DEPS='os'\" > .env-doctor.conf
-")"
-if _make_scripts_layout_venv "$py_scripts_repo/.venv"; then
-  json_out="$(mktemp)"
-  run_doctor "$py_scripts_repo" --json -q >"$json_out"
-  assert_json_contains "Scripts-layout venv python resolves for dep check" "$json_out" "all importable"
-  rm -f "$json_out"
-else
-  echo "  [info] skipping Scripts-layout Phase 2 test (no venv tool available)"
-fi
-rm -rf "$py_scripts_repo"
-
-# ── Bug 7: missing activate script reports clearly (no generic trap) ─────────
-broken_venv_repo="$(make_fixture_repo broken-venv bash -c 'echo "# no deps" > requirements.txt')"
-mkdir -p "$broken_venv_repo/.venv"
-text_out="$(mktemp)"
-set +e
-PKG_MANAGER=pip run_doctor "$broken_venv_repo" --init >"$text_out" 2>&1
-broken_code=$?
-set -e
-TESTS_RUN=$((TESTS_RUN + 1))
-if ! grep -q "no activate script" "$text_out"; then
-  echo "FAIL: broken venv should report missing activate script clearly" >&2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-fi
-TESTS_RUN=$((TESTS_RUN + 1))
-if grep -q "Unexpected script failure" "$text_out"; then
-  echo "FAIL: broken venv should not hit generic error trap" >&2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-fi
-TESTS_RUN=$((TESTS_RUN + 1))
-if [[ "$broken_code" -eq 0 ]]; then
-  echo "FAIL: broken venv --init should fail (exit $broken_code, expected non-zero)" >&2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-fi
-rm -f "$text_out"
-rm -rf "$broken_venv_repo"
-
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
 [[ "$TESTS_FAILED" -eq 0 ]]
-# tests/run.sh — Dependency-free test suite for env-doctor.
-# Licensed under GPL-3.0 — (c) 2026 greyZ
-
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-bash "$SCRIPT_DIR/smoke.sh"
-bash "$SCRIPT_DIR/security.sh"

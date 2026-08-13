@@ -26,8 +26,14 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: brew install shellcheck
 
-      - name: Run Shellcheck
-        run: shellcheck env-doctor.sh release.sh
+      - name: Run Lint (Shellcheck)
+        run: make lint
+
+      - name: Run Smoke Checks
+        run: make smoke
 
       - name: Run Test Suite
-        run: bash tests/run.sh
+        run: make test
+
+      - name: Run Release Build Check
+        run: make release

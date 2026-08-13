@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-08
+
+### Added
+- Standalone commercial Field Kit packaging and trust UX.
+- Added `--safety` flag to print the local-first, zero-telemetry safety model.
+- Added `--about` flag to print product framing, license, and runtime details.
+- Added `--print-config-template` flag to emit a commented `.env-doctor.conf` template.
+- Added `--print-agent-template` flag to emit the `AGENTS.md` environment auto-healing protocol.
+- Added `scripts/generate-examples.sh` to automatically generate sample human and JSON outputs.
+- Added support templates, custom check requests, and comprehensive Field Kit documentation (`README-FIRST.md`, `QUICKSTART.md`, `SAFETY.md`).
+- Standardized CI/CD to use Makefile targets.
+
 ## [1.1.0] - 2026-06-08
 
 ### Added

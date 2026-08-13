@@ -2,24 +2,33 @@
 
 `env-doctor` is a single-file, zero-dependency Bash script. It can be installed in seconds.
 
-## Quick Installation (with Checksum Verification)
+## Release Installation
 
-To securely download and verify the latest release of `env-doctor.sh` directly into your repository:
+Download the latest release bundle from the GitHub Releases page once a release has been published.
+
+Each release bundle should include:
+
+- `env-doctor.sh`
+- `.env-doctor.conf.example`
+- `README.md`
+- `INSTALL.md`
+- `CHANGELOG.md`
+- `docs/`
+- `SHA256SUMS`
+
+Verify the downloaded release:
 
 ```bash
-# Download the script and its SHA256 checksum
-curl -fsSL https://raw.githubusercontent.com/greyz/env-doctor/main/env-doctor.sh -o env-doctor.sh
-curl -fsSL https://raw.githubusercontent.com/greyz/env-doctor/main/SHA256SUMS -o SHA256SUMS
-
-# Verify the checksum matches
-# On Linux:
 sha256sum --check --ignore-missing SHA256SUMS
-# On macOS:
+# or on macOS:
 shasum -a 256 --check --ignore-missing SHA256SUMS
+```
 
-# Once verified, make it executable and clean up
+Then copy the script into your repository:
+
+```bash
+cp env-doctor/env-doctor.sh ./env-doctor.sh
 chmod +x env-doctor.sh
-rm SHA256SUMS
 ```
 
 ## Quick Installation (Unverified)
@@ -27,7 +36,7 @@ rm SHA256SUMS
 To download `env-doctor.sh` directly into your repository without verification:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/greyz/env-doctor/main/env-doctor.sh -o env-doctor.sh
+curl -fsSL https://raw.githubusercontent.com/k-dot-greyz/env-doctor/main/env-doctor.sh -o env-doctor.sh
 chmod +x env-doctor.sh
 ```
 
@@ -36,7 +45,7 @@ chmod +x env-doctor.sh
 If you prefer to make `env-doctor` available as a global command on your system:
 
 ```bash
-sudo curl -fsSL https://raw.githubusercontent.com/greyz/env-doctor/main/env-doctor.sh -o /usr/local/bin/env-doctor
+sudo curl -fsSL https://raw.githubusercontent.com/k-dot-greyz/env-doctor/main/env-doctor.sh -o /usr/local/bin/env-doctor
 sudo chmod +x /usr/local/bin/env-doctor
 ```
 

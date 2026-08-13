@@ -1,0 +1,40 @@
+name: env-doctor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  env-doctor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run env-doctor
+        run: |
+          bash env-doctor.sh --json --quiet > env-doctor-report.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("env-doctor-report.json").read_text())
+          print(json.dumps(report, indent=2))
+
+          if not report.get("ok", False):
+              failures = [r for r in report.get("results", []) if r.get("type") == "fail"]
+              print("env-doctor failures:")
+              for failure in failures:
+                  print(f"- {failure.get('key')}: {failure.get('value')}")
+              raise SystemExit(1)
+          PY
+
+      - name: Upload env-doctor report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: env-doctor-report
+          path: env-doctor-report.json

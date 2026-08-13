@@ -35,10 +35,13 @@ Add the following to your `Makefile`:
 doctor:
 	@bash env-doctor.sh --with-submodules
 
-# Progressively initialize the environment (Tier 2: venv, core deps, submodules, dev tools)
+# Progressively initialize the environment (Tier 3: venv, tools, PATH, Docker)
 setup:
-	@echo "Running progressive environment initialization..."
-	@bash env-doctor.sh --init --tier 2 --yes
+	@echo "Running full environment hydration (tier 3)..."
+	@bash env-doctor.sh --init --tier 3 --yes
+
+hydrate-dry:
+	@bash env-doctor.sh --init --tier 3 --dry-run
 ```
 
 #### Option B: `package.json` (Node.js Projects)
@@ -47,7 +50,7 @@ Add the following scripts to your `package.json`:
 ```json
 "scripts": {
   "doctor": "bash env-doctor.sh --with-submodules",
-  "setup": "bash env-doctor.sh --init --tier 2 --yes"
+  "setup": "bash env-doctor.sh --init --tier 3 --yes"
 }
 ```
 
@@ -57,8 +60,41 @@ If you use `taskipy` or a task runner:
 ```toml
 [tool.taskipy.tasks]
 doctor = "bash env-doctor.sh --with-submodules"
-setup = "bash env-doctor.sh --init --tier 2 --yes"
+setup = "bash env-doctor.sh --init --tier 3 --yes"
 ```
+
+---
+
+## 1b. Ubuntu / Linux Tier 2–3 Hydration
+
+On Ubuntu, Debian, or Mint, tier 2 uses native `apt` (preferred over Homebrew on Linux) to install dev tools and Python 3.14. Tier 3 completes hydration:
+
+| Tier | Actions |
+|------|---------|
+| 0 | Python 3.14+ venv + pip/poetry deps |
+| 1 | Core submodules, dev extras, pre-commit |
+| 2 | All submodules, `apt install` ripgrep/shellcheck/yamllint, Python 3.14 via deadsnakes or uv |
+| 3 | Session PATH (`.venv/bin`, `~/.local/bin`), optional persistent profile block, optional boot audit, Docker Compose |
+
+**Recommended flow:**
+
+```bash
+# Preview
+bash env-doctor.sh --init --tier 3 --dry-run
+
+# Configure (optional)
+cat >> .env-doctor.conf <<'EOF'
+ENV_DOCTOR_PERSIST_PATH=true
+ENV_DOCTOR_BOOT_AUDIT=true
+EOF
+
+# Execute
+bash env-doctor.sh --init --tier 3 --yes
+```
+
+**Boot / login audit** (`ENV_DOCTOR_BOOT_AUDIT=true`): installs `scripts/env-config.sh` hooks that run a read-only `env-doctor --json --quiet` on shell login. See `templates/systemd-user-env-doctor.service` for optional systemd user unit.
+
+**Profile PATH snippet** (`ENV_DOCTOR_PERSIST_PATH=true`): appends an idempotent block to `~/.bashrc`. Preview with `bash env-doctor.sh --print-profile-template`.
 
 ---
 

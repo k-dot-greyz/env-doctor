@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+export PATH="${HOME}/.local/bin:${PATH}"
+
 # shellcheck source=tests/helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 
@@ -293,6 +295,104 @@ if ! grep -qi "unsafe characters" "$text_out"; then
 fi
 rm -f "$text_out"
 rm -rf "$conf_crash_repo"
+
+# ── Bug 5: venv activation crashes on Windows (Scripts/ layout vs bin/) ──────
+# Trigger: native Windows Python creates .venv/Scripts/activate, not .venv/bin/activate.
+# Running --init after the Windows commit would crash with "No such file or directory"
+# from `source .venv/bin/activate` under set -e.
+# Fix: _venv_activate() probes Scripts/activate first, then bin/activate.
+# Simulate on Linux: build a real venv, move activate to Scripts/, remove from bin/.
+_make_venv() {
+  local dest="$1"
+  if python3 -m venv "$dest" 2>/dev/null; then
+    return 0
+  fi
+  rm -rf "$dest"
+  local _venv_bin
+  _venv_bin="$(command -v virtualenv 2>/dev/null || echo "$HOME/.local/bin/virtualenv")"
+  if [[ -x "$_venv_bin" ]]; then
+    "$_venv_bin" "$dest" --quiet 2>/dev/null
+    return 0
+  fi
+  return 1
+}
+
+_make_scripts_layout_venv() {
+  local dest="$1" bindir
+  _make_venv "$dest" || return 1
+  bindir="${dest:?}/bin"
+  if [[ -f "$bindir/activate" ]]; then
+    mkdir -p "${dest:?}/Scripts"
+    for entry in activate python python3 pip; do
+      [[ -f "$bindir/$entry" ]] && cp "$bindir/$entry" "${dest:?}/Scripts/$entry"
+    done
+    rm -rf "$bindir"
+  fi
+}
+
+win_venv_repo="$(make_fixture_repo win-venv-activate bash -c 'echo "# no deps" > requirements.txt')"
+if _make_scripts_layout_venv "$win_venv_repo/.venv"; then
+  text_out="$(mktemp)"
+  set +e
+  PKG_MANAGER=pip run_doctor "$win_venv_repo" --init >"$text_out" 2>&1
+  win_code=$?
+  set -e
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [[ "$win_code" -ne 0 ]]; then
+    echo "FAIL: --init with Scripts-layout venv failed (exit $win_code, expected 0) — venv activation did not fall back to Scripts/activate" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -q "Unexpected script failure" "$text_out"; then
+    echo "FAIL: --init with Scripts-layout venv hit unexpected error (likely venv activation crash)" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -f "$text_out"
+else
+  echo "  [info] skipping Scripts-layout venv test (no venv tool available)"
+fi
+rm -rf "$win_venv_repo"
+
+# ── Bug 6: Phase 2 python/tool discovery on Windows Scripts/ layout ─────────
+py_scripts_repo="$(make_fixture_repo py-scripts-layout bash -c "
+  echo '[project]' > pyproject.toml
+  echo \"ENV_DOCTOR_PYTHON_DEPS='os'\" > .env-doctor.conf
+")"
+if _make_scripts_layout_venv "$py_scripts_repo/.venv"; then
+  json_out="$(mktemp)"
+  run_doctor "$py_scripts_repo" --json -q >"$json_out"
+  assert_json_contains "Scripts-layout venv python resolves for dep check" "$json_out" "all importable"
+  rm -f "$json_out"
+else
+  echo "  [info] skipping Scripts-layout Phase 2 test (no venv tool available)"
+fi
+rm -rf "$py_scripts_repo"
+
+# ── Bug 7: missing activate script reports clearly (no generic trap) ─────────
+broken_venv_repo="$(make_fixture_repo broken-venv bash -c 'echo "# no deps" > requirements.txt')"
+mkdir -p "$broken_venv_repo/.venv"
+text_out="$(mktemp)"
+set +e
+PKG_MANAGER=pip run_doctor "$broken_venv_repo" --init >"$text_out" 2>&1
+broken_code=$?
+set -e
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -q "no activate script" "$text_out"; then
+  echo "FAIL: broken venv should report missing activate script clearly" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q "Unexpected script failure" "$text_out"; then
+  echo "FAIL: broken venv should not hit generic error trap" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ "$broken_code" -eq 0 ]]; then
+  echo "FAIL: broken venv --init should fail (exit $broken_code, expected non-zero)" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out"
+rm -rf "$broken_venv_repo"
 
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"

@@ -6,17 +6,39 @@ Initially, the script had hardcoded repository assumptions, custom Python depend
 
 ## Before / After (High Level)
 
-| Area | Before | After |
-|------|--------|-------|
+| Area | Before | After (v1.2.x) |
+|------|--------|----------------|
 | **Repo Root** | Hardcoded relative paths | `git rev-parse --show-toplevel` first, then fallbacks |
-| **Python Deps** | Hardcoded lists | Only when `ENV_DOCTOR_PYTHON_DEPS` is set via `.env-doctor.conf` |
-| **Node / Rust / Go** | Always checked | Only when matching manifests are detected at repo root |
-| **Submodule Scan** | Always on | Default off; opt-in via `--with-submodules` |
-| **Core Submodules** | Hardcoded regex | `ENV_DOCTOR_CORE_REPOS` from config |
-| **Banner** | Hardcoded brand name | `BRAND` or script name |
-| **Private Submodule Hint** | Local path only | Optional `ENV_DOCTOR_HELP_URL` |
+| **Python Deps** | Hardcoded lists | `ENV_DOCTOR_PYTHON_DEPS` via `.env-doctor.conf` |
+| **Python version** | 3.10+ warn | **3.14+ required** (configurable floor) |
+| **Node / Rust / Go** | Always checked | Only when matching manifests at repo root |
+| **Submodule Scan** | Always on | Default off; `--with-submodules` |
+| **Core Submodules** | Hardcoded regex | `ENV_DOCTOR_CORE_REPOS` |
+| **Windows venv** | `bin/` only | `bin/` + `Scripts/` layout |
+| **Linux tier 2** | brew-first, brittle apt | apt-preferred on Linux; `rg` binary fix |
+| **Tier 3** | Docker only | PATH session + profile + boot audit + compose |
+| **Private Submodule Hint** | Local path only | `ENV_DOCTOR_HELP_URL` |
 
-## Plug-and-Play Estimate
+## Plug-and-Play Estimate (honest)
 
-- **~60%** before this pass for "random repo, script copied anywhere".
-- **~99%** after: The script is now fully generic, config-driven, and compliant with the GlitchWorks Agnostic Architecture Protocol (GW-AAP).
+| Target | Read-only audit | Full tier 3 hydration |
+|--------|-----------------|-------------------------|
+| Ubuntu / Debian / Mint + sudo | **~99%** | **~85%** (Python 3.14 may need PPA/uv) |
+| Fedora / Arch / other Linux | **~99%** | **~40%** (no native tier-2 backend yet) |
+| macOS + Homebrew | **~99%** | **~70%** (no Python 3.14 auto-install) |
+| Windows Git Bash | **~95%** | **~50%** (no profile/boot hooks) |
+| Cloud agent / CI runner | **~99%** JSON | **~30%** (no runner-specific profiles) |
+
+## Remaining reusability gaps
+
+Documented in [`STATUS.md`](STATUS.md) and tracked as GitHub issues (`hydration-follow-up` label):
+
+1. **Multi-distro** — only `apt` for Linux tier 2; need `dnf`, `pacman`
+2. **Stack hydration** — Rust/Node/TS/Astro detected but not installed by init
+3. **Agent quickstarts** — generic `AGENTS.md` exists; no per-target (Cursor cloud, Copilot, devcontainer) packs
+4. **Profile portability** — `ENV_DOCTOR_REPO` breaks when repo moves; no re-bootstrap hint automation
+5. **Monolithic script** — hydration logic embedded in `env-doctor.sh`; needs `lib/hydration/` manifest
+
+## Next steps
+
+See [`FOLLOW_UPS.md`](FOLLOW_UPS.md) for the issue backlog.

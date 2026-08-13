@@ -76,6 +76,8 @@ For a complete developer environment on Ubuntu, Debian, or Mint:
 
 Tier 2 installs native packages via `apt` on Linux (ripgrep, shellcheck, yamllint, Python 3.14). Tier 3 hydrates session PATH, optionally persists it to your shell profile, and starts Docker Compose services if present.
 
+> **Platform reality:** Tier 2 native installs are **apt-only** today (Ubuntu/Debian/Mint). Fedora, Arch, and other distros: audit + tier 0–1 + tier 3 work; use manual package install or track [follow-up issues](docs/FOLLOW_UPS.md). See [`docs/STATUS.md`](docs/STATUS.md).
+
 ## 4. Align Your AI Coding Agents
 
 AI coding agents (such as Cursor, Claude Code, or Copilot) can get stuck in infinite loops when local environments are broken. Give them auto-healing capabilities:
@@ -86,6 +88,16 @@ AI coding agents (such as Cursor, Claude Code, or Copilot) can get stuck in infi
    ```
 
 2. When your AI agent starts, it will read `AGENTS.md` and automatically run `env-doctor.sh` to self-diagnose and resolve environment issues instead of guessing or failing.
+
+**Agent workflow (recommended):**
+
+```bash
+bash env-doctor.sh --json --quiet          # 1. read-only audit
+bash env-doctor.sh --init --tier 3 --dry-run  # 2. preview heal plan
+bash env-doctor.sh --init --tier 3 --yes   # 3. heal (human consent required)
+```
+
+Planned: distro-specific agent quickstarts, cloud-agent bootstrap, and JSON-driven tier selection — see [`docs/FOLLOW_UPS.md`](docs/FOLLOW_UPS.md).
 
 ## 5. Integrate with Git Hooks and CI/CD
 

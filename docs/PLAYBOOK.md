@@ -67,6 +67,8 @@ setup = "bash env-doctor.sh --init --tier 3 --yes"
 
 ## 1b. Ubuntu / Linux Tier 2–3 Hydration
 
+> **Reality check:** [`docs/STATUS.md`](../STATUS.md) — apt-based tier 2 is Ubuntu/Debian/Mint only today. Other distros: manual install or follow-up issues in [`docs/FOLLOW_UPS.md`](../FOLLOW_UPS.md).
+
 On Ubuntu, Debian, or Mint, tier 2 uses native `apt` (preferred over Homebrew on Linux) to install dev tools and Python 3.14. Tier 3 completes hydration:
 
 | Tier | Actions |

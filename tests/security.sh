@@ -1,153 +1,146 @@
 #!/usr/bin/env bash
 # Security and boundary tests for env-doctor.sh — run from repo root: bash tests/security.sh
 # Licensed under GPL-3.0 — (c) 2026 greyZ
+# shellcheck disable=SC2016
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_DOCTOR="${REPO_DIR}/env-doctor.sh"
+# shellcheck source=tests/helpers.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 
-# Colors
-G=$'\033[32m'; R=$'\033[31m'; RST=$'\033[0m'
+echo "Running env-doctor security and boundary test suite (script: $CANONICAL_SCRIPT)"
 
-PASSED=0
-FAILED=0
-
-_assert_equals() {
-  local name="$1" expected="$2" actual="$3"
-  if [[ "$expected" == "$actual" ]]; then
-    echo "  ${G}[PASS]${RST} ${name}"
-    PASSED=$((PASSED+1))
-  else
-    echo "  ${R}[FAIL]${RST} ${name}"
-    echo "    Expected: '${expected}'"
-    echo "    Actual:   '${actual}'"
-    FAILED=$((FAILED+1))
-  fi
-}
-
-_assert_contains() {
-  local name="$1" substring="$2" haystack="$3"
-  if [[ "$haystack" == *"$substring"* ]]; then
-    echo "  ${G}[PASS]${RST} ${name}"
-    PASSED=$((PASSED+1))
-  else
-    echo "  ${R}[FAIL]${RST} ${name}"
-    echo "    Expected to contain: '${substring}'"
-    echo "    Actual:             '${haystack}'"
-    FAILED=$((FAILED+1))
-  fi
-}
-
-_assert_not_contains() {
-  local name="$1" substring="$2" haystack="$3"
-  if [[ "$haystack" != *"$substring"* ]]; then
-    echo "  ${G}[PASS]${RST} ${name}"
-    PASSED=$((PASSED+1))
-  else
-    echo "  ${R}[FAIL]${RST} ${name}"
-    echo "    Expected NOT to contain: '${substring}'"
-    echo "    Actual:                 '${haystack}'"
-    FAILED=$((FAILED+1))
-  fi
-}
-
-# Create a temp workspace for testing
-TEST_WS="$(mktemp -d 2>/dev/null || mktemp -d -t 'env_doctor_test')"
-trap 'rm -rf "${TEST_WS}"' EXIT
-
-cd "${TEST_WS}"
-git init -q
-git config user.name "Test User"
-git config user.email "test@example.com"
-
-# Copy env-doctor.sh to the temp workspace
-cp "${ENV_DOCTOR}" ./env-doctor.sh
-
-echo "Running env-doctor security and boundary test suite..."
-
-# ── Test 1: Version ──
+# ── Test 1: Version (dynamic, from harness constructor) ─────────────────────
 echo "Test 1: Version flag"
-ver="$(bash ./env-doctor.sh --version)"
-_assert_equals "Version is 1.1.0" "1.1.0" "$ver"
+ver="$(bash "$CANONICAL_SCRIPT" --version)"
+assert_eq "Version matches ENV_DOCTOR_VERSION" "$HARNESS_EXPECTED_VERSION" "$ver"
 
-# ── Test 2: Invalid Tier Validation ──
+# ── Test 2: Invalid tier validation ──────────────────────────────────────────
 echo "Test 2: Invalid tier validation"
-if bash ./env-doctor.sh --tier 4 >/dev/null 2>&1; then
-  _assert_equals "Tier 4 should fail" "fail" "pass"
-else
-  _assert_equals "Tier 4 failed as expected" "fail" "fail"
-fi
+assert_exit "tier 4 rejected" 1 bash "$CANONICAL_SCRIPT" --tier 4
+assert_exit "tier abc rejected" 1 bash "$CANONICAL_SCRIPT" --tier abc
 
-if bash ./env-doctor.sh --tier abc >/dev/null 2>&1; then
-  _assert_equals "Tier abc should fail" "fail" "pass"
-else
-  _assert_equals "Tier abc failed as expected" "fail" "fail"
-fi
+# ── Test 3: --brand boundary (agentic argv injection) ────────────────────────
+echo "Test 3: --brand boundary validation"
+assert_exit "--brand semicolon injection rejected" 1 \
+  bash "$CANONICAL_SCRIPT" --brand 'evil;rm -rf /'
+assert_exit "--brand shell expansion rejected" 1 \
+  bash "$CANONICAL_SCRIPT" --brand 'evil$(id)'
+assert_exit "--brand pipe rejected" 1 bash "$CANONICAL_SCRIPT" --brand 'evil|id'
 
-# ── Test 3: Safe Config Parsing (Arbitrary Code Execution Prevention) ──
-echo "Test 3: Safe config parsing"
-cat <<'EOF' > .env-doctor.conf
-BRAND="Hacked Brand"
-# This malicious command should NOT execute
-touch HACKED_FILE
-ENV_DOCTOR_CORE_REPOS="my-core"
+# ── Test 4: Safe config parsing (RCE prevention) ─────────────────────────────
+echo "Test 4: Safe config parsing"
+marker_repo="$(make_fixture_repo safe-config bash -c "
+  cat > .env-doctor.conf <<'EOF'
+BRAND=\"Hacked Brand\"
+touch ${HARNESS_MARKER_BASENAME}
+ENV_DOCTOR_CORE_REPOS=\"my-core\"
 EOF
+")"
+marker_path="${marker_repo}/${HARNESS_MARKER_BASENAME}"
+run_doctor "$marker_repo" --quiet 2>/dev/null || true
+assert_file_absent "malicious config command blocked" "$marker_path"
+rm -rf "$marker_repo"
 
-# Run env-doctor.sh (safe-parse is default)
-bash ./env-doctor.sh --quiet 2>/dev/null || true
-if [[ -f HACKED_FILE ]]; then
-  _assert_equals "Malicious config command executed!" "no HACKED_FILE" "HACKED_FILE exists"
-  rm -f HACKED_FILE
-else
-  _assert_equals "Malicious config command was blocked" "no HACKED_FILE" "no HACKED_FILE"
-fi
+# ── Test 5: Config allowlist + charset validation ───────────────────────────
+echo "Test 5: Config allowlist and charset validation"
+charset_repo="$(make_fixture_repo config-charset bash -c "
+  cat > .env-doctor.conf <<'EOF'
+BRAND=\"safe;evil\"
+ENV_DOCTOR_HELP_URL=\"javascript:alert(1)\"
+UNKNOWN_KEY=\"should-not-apply\"
+ENV_DOCTOR_PYTHON_DEPS=\"os,bad!dep\"
+EOF
+  echo '[project]' > pyproject.toml
+")"
+json_out="$(mktemp)"
+run_doctor "$charset_repo" --json -q >"$json_out" 2>/dev/null || true
+assert_json_ok "charset config JSON envelope" "$json_out"
+assert_json_contains "invalid python dep charset rejected" "$json_out" "unsafe characters"
+text_out="$(mktemp)"
+run_doctor "$charset_repo" >"$text_out" 2>&1 || true
+assert_not_contains "unsafe BRAND semicolon not applied" "$text_out" "safe;evil"
+assert_not_contains "javascript: HELP_URL not applied" "$text_out" "javascript:"
+rm -f "$json_out" "$text_out"
+rm -rf "$charset_repo"
 
-# ── Test 4: Unsafe Config Sourcing Opt-in ──
-echo "Test 4: Unsafe config sourcing opt-in"
-# Make sure it sources if we explicitly opt-in with --unsafe-source-config
-# (and the file is safe/owned by us)
-bash ./env-doctor.sh --unsafe-source-config --quiet 2>/dev/null || true
-if [[ -f HACKED_FILE ]]; then
-  _assert_equals "Unsafe config command executed with opt-in" "HACKED_FILE exists" "HACKED_FILE exists"
-  rm -f HACKED_FILE
-else
-  _assert_equals "Unsafe config command did not execute with opt-in" "HACKED_FILE exists" "no HACKED_FILE"
-fi
+# ── Test 6: Unsafe config sourcing opt-in ───────────────────────────────────
+echo "Test 6: Unsafe config sourcing opt-in"
+unsafe_repo="$(make_fixture_repo unsafe-optin bash -c "
+  cat > .env-doctor.conf <<'EOF'
+BRAND=\"Hacked Brand\"
+touch ${HARNESS_MARKER_BASENAME}
+ENV_DOCTOR_CORE_REPOS=\"my-core\"
+EOF
+")"
+unsafe_marker="${unsafe_repo}/${HARNESS_MARKER_BASENAME}"
+run_doctor "$unsafe_repo" --unsafe-source-config --quiet 2>/dev/null || true
+assert_file_present "unsafe config command executed with opt-in" "$unsafe_marker"
+rm -f "$unsafe_marker"
+rm -rf "$unsafe_repo"
 
-# ── Test 5: Secret Redaction ──
-echo "Test 5: Secret redaction"
-git remote add origin "https://x-access-token:ghp_1234567890abcdefghijklmnopqrstuv@github.com/greyz/env-doctor.git"
-out="$(bash ./env-doctor.sh --json)"
-_assert_contains "Redacted ghp_ token" "[REDACTED]" "$out"
-_assert_not_contains "No raw ghp_ token" "ghp_1234567890" "$out"
+# ── Test 7: World-writable config refused for unsafe sourcing ────────────────
+echo "Test 7: World-writable config refused"
+world_repo="$(make_fixture_repo world-writable bash -c "
+  cat > .env-doctor.conf <<'EOF'
+touch ${HARNESS_MARKER_BASENAME}
+EOF
+  chmod 666 .env-doctor.conf
+")"
+world_marker="${world_repo}/${HARNESS_MARKER_BASENAME}"
+text_out="$(mktemp)"
+run_doctor "$world_repo" --unsafe-source-config >"$text_out" 2>&1 || true
+assert_file_absent "world-writable config not sourced" "$world_marker"
+assert_contains "world-writable warning emitted" "$(cat "$text_out")" "world-writable"
+rm -f "$text_out"
+rm -rf "$world_repo"
 
-# Test GitLab token redaction
-git remote set-url origin "https://oauth2:glpat-abcdefghijklmnopqrst@gitlab.com/greyz/env-doctor.git"
-out="$(bash ./env-doctor.sh --json)"
-_assert_contains "Redacted glpat- token" "[REDACTED]" "$out"
-_assert_not_contains "No raw glpat- token" "glpat-abcdef" "$out"
+# ── Test 8: Secret redaction ─────────────────────────────────────────────────
+echo "Test 8: Secret redaction"
+redact_repo="$(make_fixture_repo redact true)"
+(
+  cd "$redact_repo"
+  git remote add origin "https://x-access-token:${HARNESS_REDACT_TOKEN}@github.com/greyz/env-doctor.git"
+)
+out="$(run_doctor "$redact_repo" --json)"
+assert_contains "redacted ghp_ token" "$out" "[REDACTED]"
+assert_not_contains "no raw ghp_ token" "$out" "${HARNESS_REDACT_TOKEN:0:12}"
 
-# Test generic user:pass redaction
-git remote set-url origin "https://myuser:mypassword@github.com/greyz/env-doctor.git"
-out="$(bash ./env-doctor.sh --json)"
-_assert_contains "Redacted user:pass" "[REDACTED]" "$out"
-_assert_not_contains "No raw password" "mypassword" "$out"
+(
+  cd "$redact_repo"
+  git remote set-url origin "https://oauth2:${HARNESS_REDACT_GLPAT}@gitlab.com/greyz/env-doctor.git"
+)
+out="$(run_doctor "$redact_repo" --json)"
+assert_contains "redacted glpat- token" "$out" "[REDACTED]"
+assert_not_contains "no raw glpat- token" "$out" "glpat-abcdef"
 
-# ── Test 6: Control Character Escaping in JSON ──
-echo "Test 6: Control character escaping in JSON"
-if command -v python3 &>/dev/null; then
-  if python3 -c "import json; json.loads('''$out''')" 2>/dev/null; then
-    _assert_equals "JSON is valid" "valid" "valid"
-  else
-    _assert_equals "JSON is invalid" "valid" "invalid"
-  fi
-fi
+(
+  cd "$redact_repo"
+  git remote set-url origin "https://myuser:mypassword@github.com/greyz/env-doctor.git"
+)
+out="$(run_doctor "$redact_repo" --json)"
+assert_contains "redacted user:pass" "$out" "[REDACTED]"
+assert_not_contains "no raw password" "$out" "mypassword"
+rm -rf "$redact_repo"
+
+# ── Test 9: JSON envelope survives hostile PATH tool output ───────────────────
+echo "Test 9: JSON envelope with hostile PATH tool output"
+hostile_repo="$(make_fixture_repo hostile-tool bash -c "
+  mkdir -p bin
+  printf '%s\n' '#!/usr/bin/env bash' 'printf \"ripgrep 1.0.0\\nINJECTED\\n\"' > bin/rg
+  chmod +x bin/rg
+")"
+json_out="$(mktemp)"
+set +e
+PATH="${hostile_repo}/bin:${PATH}" run_doctor "$hostile_repo" --json -q >"$json_out" 2>/dev/null
+hostile_code=$?
+set -e
+assert_exit_not_gt "hostile tool output does not crash script" 1 "$hostile_code"
+assert_json_ok "hostile tool output still yields valid JSON" "$json_out"
+assert_not_contains "injected newline not raw in JSON" "$(cat "$json_out")" "INJECTED"
+rm -f "$json_out"
+rm -rf "$hostile_repo"
 
 echo ""
-echo "Test Summary: ${PASSED} passed, ${FAILED} failed."
-if [[ $FAILED -gt 0 ]]; then
-  exit 1
-fi
-exit 0
+echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
+[[ "$TESTS_FAILED" -eq 0 ]]

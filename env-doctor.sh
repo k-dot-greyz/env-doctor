@@ -922,8 +922,13 @@ _gh_auth_out() {
 }
 
 _gh_has_scope() {
-  local scope="$1" auth_out="$2"
-  echo "$auth_out" | grep -qE "(Token scopes:|${scope})"
+  local scope="$1" auth_out="$2" scopes
+  scopes="$(
+    printf '%s\n' "$auth_out" |
+      sed -n 's/.*Token scopes:[[:space:]]*//p' |
+      tr -d "'[:space:]"
+  )"
+  [[ ",$scopes," == *,"$scope",* ]]
 }
 
 _suggest_dinit_auth() {

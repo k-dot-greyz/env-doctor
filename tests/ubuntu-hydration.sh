@@ -9,6 +9,8 @@ export PATH="${HOME}/.local/bin:${PATH}"
 # shellcheck source=tests/helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 
+_setup_test_python314
+
 echo "env-doctor ubuntu-hydration tests (script: $CANONICAL_SCRIPT)"
 
 # ── --print-profile-template exits 0 ─────────────────────────────────────────
@@ -44,10 +46,14 @@ rm -rf "$dry_repo"
 compose_repo="$(make_fixture_repo compose-yaml bash -c 'printf "services:\n  web:\n    image: nginx\n" > compose.yaml')"
 text_out="$(mktemp)"
 run_doctor "$compose_repo" -it3n >"$text_out" 2>&1 || true
-TESTS_RUN=$((TESTS_RUN + 1))
-if ! grep -qi "compose" "$text_out"; then
-  echo "FAIL: tier 3 dry-run should detect compose.yaml" >&2
-  TESTS_FAILED=$((TESTS_FAILED + 1))
+if command -v docker &>/dev/null; then
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if ! grep -qi "compose" "$text_out"; then
+    echo "FAIL: tier 3 dry-run should detect compose.yaml" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+else
+  echo "  [info] skipping compose discovery test (docker not installed)"
 fi
 rm -f "$text_out"
 rm -rf "$compose_repo"

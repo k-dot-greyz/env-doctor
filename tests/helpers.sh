@@ -94,10 +94,14 @@ run_doctor() {
   )
 }
 
-# Stub python3.14 on PATH for tests (env-doctor requires 3.14+); delegates venv to real python3/virtualenv.
+# Stub python3.14 on PATH for tests that require the 3.14+ floor on hosts without it.
+# Reports 3.14.0 for --version only; all other invocations delegate to host python3.
+# Do NOT use this stub to validate Python 3.14-specific semantics.
 _setup_test_python314() {
   local stub_dir
   stub_dir="$(mktemp -d "${TMPDIR:-/tmp}/env-doctor-py314-stub-XXXXXX")"
+  export ENV_DOCTOR_PY314_STUB_DIR="$stub_dir"
+  trap '[[ -n "${ENV_DOCTOR_PY314_STUB_DIR:-}" ]] && rm -rf "$ENV_DOCTOR_PY314_STUB_DIR"' EXIT
   cat >"$stub_dir/python3.14" <<'STUB'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" ]]; then
@@ -121,4 +125,3 @@ STUB
   chmod +x "$stub_dir/python3.14"
   export PATH="$stub_dir:${PATH}"
 }
-_setup_test_python314

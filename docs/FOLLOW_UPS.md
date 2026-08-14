@@ -31,6 +31,6 @@ Tracked as GitHub issues tagged **`hydration-follow-up`** in the issue body (lab
 
 ## Search on GitHub
 
-```
+```text
 repo:k-dot-greyz/env-doctor hydration-follow-up in:body
 ```

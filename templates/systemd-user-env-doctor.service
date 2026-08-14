@@ -4,7 +4,11 @@ After=default.target
 
 [Service]
 Type=oneshot
-ExecStart=%h/path/to/repo/env-doctor.sh --json --quiet
+# Replace REPLACE_WITH_REPO_PATH with your repo directory under %h (user home).
+# Example: %h/Code/env-doctor/env-doctor.sh
+ExecStart=%h/REPLACE_WITH_REPO_PATH/env-doctor.sh --json --quiet
+# Exit 1 means audit found issues (expected); 0 means all checks passed.
+SuccessExitStatus=0 1
 RemainAfterExit=yes
 
 [Install]

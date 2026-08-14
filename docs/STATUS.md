@@ -1,6 +1,6 @@
 # env-doctor — Current Reality (v1.2.x + hydration branch)
 
-Last updated: 2026-08-13. This document is the **source of truth** for what works today, what is partial, and what is planned. See [open follow-up issues](https://github.com/k-dot-greyz/env-doctor/issues?q=is%3Aissue+label%3Ahydration-follow-up) for next steps.
+Last updated: 2026-08-13. This document is the **source of truth** for what works today, what is partial, and what is planned. See [`docs/FOLLOW_UPS.md`](FOLLOW_UPS.md) and [open follow-up issues](https://github.com/k-dot-greyz/env-doctor/issues?q=repo%3Ak-dot-greyz%2Fenv-doctor+hydration-follow-up+in%3Abody) for next steps.
 
 ## Platform support matrix
 
@@ -22,7 +22,7 @@ Last updated: 2026-08-13. This document is the **source of truth** for what work
 
 | Tier | What it does today | Requires `--yes` for system changes |
 |------|-------------------|-------------------------------------|
-| **0** | `.venv` + pip/poetry/requirements install | venv only (no sudo) |
+| **0** | `.venv` + pip/poetry/requirements install; on apt Linux may call `_ensure_python314_ubuntu` when Python < 3.14 | venv + pip; Python apt/uv install requires `--yes` |
 | **1** | Core submodules (`--with-submodules` + `ENV_DOCTOR_CORE_REPOS`), `pip install -e ".[dev]"`, pre-commit | pip only |
 | **2** | All submodules; apt/brew/winget dev tools; Python 3.14 on apt Linux | apt/brew/winget installs |
 | **3** | Session PATH; optional profile block; optional boot audit; `docker compose up -d` | profile + boot hooks |
@@ -103,7 +103,7 @@ make hydrate-dry  # --init --tier 3 --dry-run
 
 ## What to do next
 
-See GitHub issues [#8](https://github.com/k-dot-greyz/env-doctor/issues/8)–[#13](https://github.com/k-dot-greyz/env-doctor/issues/13) (tagged `hydration-follow-up` in body). Full index: [`docs/FOLLOW_UPS.md`](FOLLOW_UPS.md).
+See GitHub issues [#8](https://github.com/k-dot-greyz/env-doctor/issues/8)–[#13](https://github.com/k-dot-greyz/env-doctor/issues/13) (tracked via `hydration-follow-up` in issue bodies). Full index: [`docs/FOLLOW_UPS.md`](FOLLOW_UPS.md).
 
 1. **#8** Multi-distro native backends (dnf, pacman)
 2. **#9** Modern stack hydration (Rust, Node, TypeScript, Astro)

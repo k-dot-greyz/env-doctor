@@ -67,6 +67,6 @@ Full list: `bash env-doctor.sh --help`
 
 ## Follow-up work
 
-Planned hardening for multi-distro targets, agentic quickstarts, and reusable hydration profiles: [`docs/FOLLOW_UPS.md`](FOLLOW_UPS.md) and GitHub issues labeled `hydration-follow-up`.
+Planned hardening for multi-distro targets, agentic quickstarts, and reusable hydration profiles: [`docs/FOLLOW_UPS.md`](FOLLOW_UPS.md) and GitHub issues tracked in issue bodies (`hydration-follow-up`).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for phases and JSON output, and [PLAYBOOK.md](PLAYBOOK.md) for integration patterns.

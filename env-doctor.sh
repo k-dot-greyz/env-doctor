@@ -68,6 +68,7 @@ DOCTOR_NAME="env-doctor"
 ENV_DOCTOR_VERSION="1.2.0"
 UNSAFE_SOURCE_CONFIG=false
 ENV_DOCTOR_ASSUME_YES=false
+ENV_DOCTOR_NEXT_CMD=""
 # Color codes default to empty (no color) until _setup_colors runs.
 # Must be initialized here so _warn/_fail/_info are safe to call from
 # _bootstrap_env/_load_config, which execute BEFORE _setup_colors.
@@ -908,7 +909,7 @@ _check_tool() {
 }
 
 _check_python() {
-  local best="" best_ver=""
+  local best="" best_ver="" pin="${ENV_DOCTOR_PYTHON_PIN:-3.14}"
   for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
     if command -v "$py" &>/dev/null; then
       local ver
@@ -919,16 +920,19 @@ _check_python() {
       if [[ -z "$best" ]]; then
         best="$py"; best_ver="$ver"
       fi
-      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]]; then
-        _pass "python ($py)" "$ver"
+      if [[ "$ver" == "$pin"* ]] || [[ "$ver" == "${pin}."* ]]; then
+        _pass "python ($py)" "$ver (pinned $pin)"
         BEST_PYTHON="$py"
         return
+      fi
+      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]]; then
+        best="$py"; best_ver="$ver"
       fi
     fi
   done
   if [[ -n "$best" ]]; then
-    local py_hint="3.10+ recommended"
-    [[ -f "$REPO_ROOT/pyproject.toml" ]] && py_hint="3.10+ recommended (see pyproject.toml)"
+    local py_hint="upgrade to ${pin} recommended (run: dinit purge-python on macOS)"
+    [[ -f "$REPO_ROOT/pyproject.toml" ]] && py_hint="${py_hint}; see pyproject.toml"
     _warn "python ($best)" "$best_ver ($py_hint)"
     BEST_PYTHON="$best"
   else
@@ -1059,6 +1063,82 @@ phase3_git() {
   fi
 }
 
+_gh_auth_out() {
+  _timeout_cmd 5 gh auth status 2>&1 || true
+}
+
+_gh_has_scope() {
+  local scope="$1" auth_out="$2" scopes
+  scopes="$(
+    printf '%s\n' "$auth_out" |
+      sed -n 's/.*Token scopes:[[:space:]]*//p' |
+      tr -d "'[:space:]"
+  )"
+  [[ ",$scopes," == *,"$scope",* ]]
+}
+
+_suggest_dinit_auth() {
+  ENV_DOCTOR_NEXT_CMD="dinit auth"
+}
+
+_check_gh_auth() {
+  if ! command -v gh &>/dev/null; then
+    _info "gh auth" "skipped (gh CLI not found)"
+    return 0
+  fi
+
+  local auth_out
+  auth_out="$(_gh_auth_out)"
+
+  if echo "$auth_out" | grep -q 'token in keyring is invalid'; then
+    _warn "gh auth" "token invalid (keychain stale)"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  if ! _timeout_cmd 5 gh auth status &>/dev/null; then
+    _warn "gh auth" "not authenticated"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  if ! _gh_has_scope repo "$auth_out"; then
+    _warn "gh auth" "missing repo scope"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  if ! _gh_has_scope admin:public_key "$auth_out"; then
+    _warn "gh auth" "missing admin:public_key scope (SSH keys)"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  _pass "gh auth" "authenticated"
+}
+
+_check_github_git_urls() {
+  cd "$REPO_ROOT" 2>/dev/null || return 0
+
+  local url
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  if [[ "$url" == https://github.com/* ]]; then
+    _warn "git remote" "origin uses HTTPS (submodules may prompt for password)"
+    _suggest_dinit_auth
+  elif [[ -n "$url" ]]; then
+    _pass "git remote" "origin configured"
+  fi
+
+  local key val
+  while IFS= read -r key val; do
+    [[ -z "$key" ]] && continue
+    if [[ "$key" == *"https://github.com"* ]] || [[ "$val" == "git@github.com:" ]]; then
+      _warn "git config" "HTTPS override poison detected ($key)"
+      _suggest_dinit_auth
+    fi
+  done < <(git config --global --get-regexp '^url\..*\.insteadOf$' 2>/dev/null || true)
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 4: Credential & Config Discovery
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1097,14 +1177,8 @@ phase4_creds() {
     fi
   fi
 
-  # gh auth
-  if command -v gh &>/dev/null; then
-    if gh auth status 2>&1 | grep -q "Logged in"; then
-      _pass "gh auth" "authenticated"
-    else
-      _warn "gh auth" "not authenticated (run: gh auth login)"
-    fi
-  fi
+  _check_gh_auth
+  _check_github_git_urls
 
   # Docker daemon
   if command -v docker &>/dev/null; then
@@ -1134,6 +1208,11 @@ phase4_creds() {
   fi
 }
 
+_submodule_init_hint() {
+  echo "    next: dinit auth" >&2
+  _suggest_dinit_auth
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Progressive Init (--init only)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1145,6 +1224,10 @@ phase5_init() {
   [[ "$DRY_RUN" == "true" ]] && _info "dry-run" "showing planned actions only (no changes)"
 
   cd "$REPO_ROOT" || { _fail "Directory change" "failed to cd to REPO_ROOT"; return 1; }
+
+  if [[ "$DRY_RUN" != "true" ]]; then
+    export GIT_TERMINAL_PROMPT=0
+  fi
 
   # ── Tier 0: Venv + core deps ──
   if [[ "$INIT_TIER" -ge 0 ]]; then
@@ -1234,7 +1317,10 @@ phase5_init() {
               if [[ -n "${ENV_DOCTOR_HELP_URL:-}" ]]; then
                 echo "    See: $ENV_DOCTOR_HELP_URL" >&2
               fi
+            else
+              echo "    ⚠️  Submodule init failed (auth or network)" >&2
             fi
+            _submodule_init_hint
           fi
         done
       fi
@@ -1416,8 +1502,13 @@ summary() {
   fi
 
   if [[ "$DO_INIT" == false ]] && [[ "$QUIET" == false ]]; then
-    printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
-    printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"
+    if [[ -n "$ENV_DOCTOR_NEXT_CMD" ]]; then
+      printf "\n${Y}  blocker:${RST} GitHub auth / git URLs need fixing\n"
+      printf "${DIM}  next: %s${RST}\n\n" "$ENV_DOCTOR_NEXT_CMD"
+    else
+      printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
+      printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"
+    fi
   fi
 }
 

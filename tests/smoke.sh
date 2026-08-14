@@ -394,6 +394,94 @@ fi
 rm -f "$text_out"
 rm -rf "$broken_venv_repo"
 
+# ── Bug: _check_python pin — exact pin match should PASS, not WARN ────────────
+# Regression for: major/minor fallback block silently overwrote `best` with the
+# LOWEST available Python because loop goes high→low and the guard was missing.
+# When pin matches the installed Python, we must get a [PASS] line, not [WARN].
+if command -v python3 &>/dev/null; then
+  current_py_ver="$(python3 --version 2>&1 | awk '{print $2}')"
+  # Strip patch → "3.12.4" → "3.12"
+  current_py_minor="${current_py_ver%.*}"
+  pin_repo="$(make_fixture_repo py-pin-pass bash -c 'echo "[project]" > pyproject.toml')"
+  json_out="$(mktemp)"
+  ENV_DOCTOR_PYTHON_PIN="$current_py_minor" run_doctor "$pin_repo" --json -q >"$json_out" 2>/dev/null || true
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if ! python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if row.get('type') == 'pass' and 'python' in row.get('key','') and 'pinned' in row.get('value',''):
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+    echo "FAIL: python pin match should emit a [PASS] with 'pinned' in value" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -f "$json_out"
+  rm -rf "$pin_repo"
+fi
+
+# ── Bug: _check_github_git_urls — IFS= broke key/val split (false positive) ──
+# SSH-forcing override url.git@github.com:.insteadOf https://github.com/ is a
+# common legitimate config.  With IFS=, the whole line ended up in $key and
+# "https://github.com" (from the value) triggered a false "poison" warning.
+# After the fix, no warning should appear for this config.
+git_urls_repo="$(make_fixture_repo git-url-no-fp bash -c 'true')"
+tmp_global_cfg="$(mktemp)"
+cat >"$tmp_global_cfg" <<'GITCFG'
+[user]
+	name = Test
+	email = test@example.com
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+GITCFG
+json_out="$(mktemp)"
+GIT_CONFIG_GLOBAL="$tmp_global_cfg" run_doctor "$git_urls_repo" --json -q >"$json_out" 2>/dev/null || true
+TESTS_RUN=$((TESTS_RUN + 1))
+if python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if 'poison' in row.get('value','').lower():
+        sys.exit(1)
+" 2>/dev/null; then
+  : # no poison warning — expected
+else
+  echo "FAIL: SSH-forcing git url override should NOT trigger 'HTTPS override poison' warning" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$json_out" "$tmp_global_cfg"
+rm -rf "$git_urls_repo"
+
+# Real HTTPS-forcing override (genuine poison) MUST warn.
+git_urls_poison_repo="$(make_fixture_repo git-url-poison bash -c 'true')"
+tmp_poison_cfg="$(mktemp)"
+cat >"$tmp_poison_cfg" <<'GITCFG'
+[user]
+	name = Test
+	email = test@example.com
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+GITCFG
+json_out="$(mktemp)"
+GIT_CONFIG_GLOBAL="$tmp_poison_cfg" run_doctor "$git_urls_poison_repo" --json -q >"$json_out" 2>/dev/null || true
+TESTS_RUN=$((TESTS_RUN + 1))
+if python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if 'poison' in row.get('value','').lower():
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+  : # poison warning found — expected
+else
+  echo "FAIL: HTTPS-forcing git url override should trigger 'HTTPS override poison' warning" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$json_out" "$tmp_poison_cfg"
+rm -rf "$git_urls_poison_repo"
+
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
 [[ "$TESTS_FAILED" -eq 0 ]]

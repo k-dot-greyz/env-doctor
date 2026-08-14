@@ -925,7 +925,8 @@ _check_python() {
         BEST_PYTHON="$py"
         return
       fi
-      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]]; then
+      # Only set best if not yet set — loop is high→low, so first match is highest.
+      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]] && [[ -z "$best" ]]; then
         best="$py"; best_ver="$ver"
       fi
     fi
@@ -1130,7 +1131,7 @@ _check_github_git_urls() {
   fi
 
   local key val
-  while IFS= read -r key val; do
+  while read -r key val; do
     [[ -z "$key" ]] && continue
     if [[ "$key" == *"https://github.com"* ]] || [[ "$val" == "git@github.com:" ]]; then
       _warn "git config" "HTTPS override poison detected ($key)"

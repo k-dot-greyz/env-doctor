@@ -32,6 +32,8 @@ This tool is built on the core tenets of the GlitchWorks Agnostic Architecture P
 
 ## Documentation
 
+- [`docs/STATUS.md`](docs/STATUS.md) — **what works today** (platform matrix, tiers, limitations)
+- [`docs/FOLLOW_UPS.md`](docs/FOLLOW_UPS.md) — hydration & agentic dev backlog (GitHub issues)
 - [`docs/README.md`](docs/README.md) — flags, config, quickstart
 - [`docs/PLAYBOOK.md`](docs/PLAYBOOK.md) — Git hooks, CI/CD, and AI-agent integration playbook
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — phases, JSON schema, design

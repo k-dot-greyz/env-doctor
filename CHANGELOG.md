@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Ubuntu/Debian/Mint tier 2–3 hydration: apt installs, Python 3.14 floor, session/persistent PATH, boot audit hooks.
+- `scripts/env-config.sh`, profile/systemd templates, `--print-profile-template`.
+- `tests/ubuntu-hydration.sh`, `make setup`, `make hydrate-dry`.
+- `docs/STATUS.md` and `docs/FOLLOW_UPS.md` — capability matrix and issue backlog.
+
+### Changed
+- Python minimum raised to **3.14** (`ENV_DOCTOR_MIN_PYTHON_MINOR`).
+- Linux tier 2 prefers **apt over brew**; fixes `ripgrep`/`rg` detection.
+- Tier 3 expanded beyond Docker: PATH hydration, profile persistence, compose filename variants.
+- Windows venv: `Scripts/` layout support for `--init`.
+
 ## [1.2.0] - 2026-06-08
 
 ### Added

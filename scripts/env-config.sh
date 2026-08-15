@@ -10,6 +10,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${ENV_DOCTOR_REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+# REPO_ROOT is embedded verbatim into shell profile files. Reject paths containing
+# shell metacharacters that would cause code execution on shell startup.
+if [[ "$REPO_ROOT" =~ [\$\`\;\&\|\<\>\(\)\\] ]] || [[ "$REPO_ROOT" =~ $'\n' ]]; then
+  echo "env-config.sh: REPO_ROOT/ENV_DOCTOR_REPO contains unsafe characters; aborting." >&2
+  exit 1
+fi
+
 ENV_DOCTOR="${REPO_ROOT}/env-doctor.sh"
 PROFILE_MARKER_START="# >>> env-doctor boot audit >>>"
 PROFILE_MARKER_END="# <<< env-doctor boot audit <<<"

@@ -73,6 +73,7 @@ test("flags mock credentials in .env (agent must not treat as production-ready)"
   writeFileSync(join(dir, "env.example"), "API_KEY=\n");
   execFileSync("git", ["init", "-q"], { cwd: dir });
   execFileSync("git", ["config", "user.email", gitUserEmail], { cwd: dir });
+  execFileSync("git", ["config", "user.name", gitUserName], { cwd: dir });
   execFileSync("git", ["add", "-A"], { cwd: dir });
   execFileSync("git", ["commit", "-q", "-m", "env"], { cwd: dir });
   try {

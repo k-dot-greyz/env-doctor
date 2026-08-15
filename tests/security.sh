@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Security and boundary tests for env-doctor.sh — run from repo root: bash tests/security.sh
 # Licensed under GPL-3.0 — (c) 2026 greyZ
+# shellcheck disable=SC2016
 
 set -euo pipefail
 
 # shellcheck source=tests/helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
-
-G=$'\033[32m'; R=$'\033[31m'; RST=$'\033[0m'
 
 echo "Running env-doctor security and boundary test suite (script: $CANONICAL_SCRIPT)"
 
@@ -125,9 +124,13 @@ rm -rf "$redact_repo"
 
 # ── Test 9: JSON envelope survives hostile PATH tool output ───────────────────
 echo "Test 9: JSON envelope with hostile PATH tool output"
+# rg --version first line is captured by _check_tool (head -1); inject JSON-breaking quotes on line 1.
 hostile_repo="$(make_fixture_repo hostile-tool bash -c "
   mkdir -p bin
-  printf '%s\n' '#!/usr/bin/env bash' 'printf \"ripgrep 1.0.0\\nINJECTED\\n\"' > bin/rg
+  {
+    echo '#!/usr/bin/env bash'
+    printf '%s\n' 'printf \"ripgrep 1.0.0 INJECTED\\\",\\\"evil\\\":\\\"pwned\\\"\\n\"'
+  } > bin/rg
   chmod +x bin/rg
 ")"
 json_out="$(mktemp)"
@@ -137,7 +140,20 @@ hostile_code=$?
 set -e
 assert_exit_not_gt "hostile tool output does not crash script" 1 "$hostile_code"
 assert_json_ok "hostile tool output still yields valid JSON" "$json_out"
-assert_not_contains "injected newline not raw in JSON" "$(cat "$json_out")" "INJECTED"
+assert_json_contains "hostile rg version captured in JSON" "$json_out" "INJECTED"
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for r in d.get('results', []):
+    if set(r.keys()) - {'type', 'key', 'value'}:
+        sys.exit(1)
+if 'evil' in d and not isinstance(d.get('evil'), str):
+    sys.exit(2)
+" 2>/dev/null; then
+  echo "FAIL: hostile tool output broke JSON envelope structure" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
 rm -f "$json_out"
 rm -rf "$hostile_repo"
 

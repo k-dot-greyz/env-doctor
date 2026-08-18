@@ -58,8 +58,8 @@ assert_json_ok "charset config JSON envelope" "$json_out"
 assert_json_contains "invalid python dep charset rejected" "$json_out" "unsafe characters"
 text_out="$(mktemp)"
 run_doctor "$charset_repo" >"$text_out" 2>&1 || true
-assert_not_contains "unsafe BRAND semicolon not applied" "$text_out" "safe;evil"
-assert_not_contains "javascript: HELP_URL not applied" "$text_out" "javascript:"
+assert_not_contains "unsafe BRAND semicolon not applied" "$(cat "$text_out")" "safe;evil"
+assert_not_contains "javascript: HELP_URL not applied" "$(cat "$text_out")" "javascript:"
 rm -f "$json_out" "$text_out"
 rm -rf "$charset_repo"
 

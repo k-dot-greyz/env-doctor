@@ -145,6 +145,33 @@ if command -v python3 &>/dev/null; then
   fi
 fi
 
+# ── Test 7: SSH-forcing insteadOf does not trigger false poison warning (Bug #51) ──
+echo "Test 7: Bug 51 regression — SSH-forcing insteadOf should not emit poison warning"
+tmp_gitcfg="$(mktemp)"
+# A legitimate SSH-forcing url rewrite: HTTPS → SSH (common developer best practice)
+git config --file "$tmp_gitcfg" 'url.git@github.com:.insteadOf' 'https://github.com/'
+out_51="$(GIT_CONFIG_GLOBAL="$tmp_gitcfg" bash ./env-doctor.sh --json 2>&1 || true)"
+_assert_not_contains "SSH-forcing insteadOf no false poison warn" "poison" "$out_51"
+rm -f "$tmp_gitcfg"
+
+# ── Test 8: Bug 57 — _check_python selects highest available Python (not lowest) ──
+echo "Test 8: Bug 57 regression — _check_python picks highest available Python when multiple exist"
+tmp_pybin_57="$(mktemp -d)"
+# Stubs: python3.13 (high, 3.13.0) and python3.11 + python3 (low, 3.11.9), pin=3.14 absent
+printf '#!/usr/bin/env bash\necho "Python 3.13.0"\n' > "$tmp_pybin_57/python3.13"
+printf '#!/usr/bin/env bash\necho "Python 3.11.9"\n' > "$tmp_pybin_57/python3.11"
+printf '#!/usr/bin/env bash\necho "Python 3.11.9"\n' > "$tmp_pybin_57/python3"
+chmod +x "$tmp_pybin_57/python3.13" "$tmp_pybin_57/python3.11" "$tmp_pybin_57/python3"
+# Need a pyproject.toml so _project_has python is true and _check_python actually runs
+echo '[project]' > pyproject.toml
+out_57="$(PATH="$tmp_pybin_57:$PATH" bash ./env-doctor.sh --json 2>&1 || true)"
+rm -f pyproject.toml
+# Fixed: warns with python3.13 (highest/first found in highest-to-lowest loop)
+_assert_contains "Bug 57: highest python3.13 selected" '"python (python3.13)"' "$out_57"
+# Buggy: would warn with python3 (generic, last loop iteration overwrote python3.13)
+_assert_not_contains "Bug 57: generic python3 not selected as best" '"python (python3)"' "$out_57"
+rm -rf "$tmp_pybin_57"
+
 echo ""
 echo "Test Summary: ${PASSED} passed, ${FAILED} failed."
 if [[ $FAILED -gt 0 ]]; then

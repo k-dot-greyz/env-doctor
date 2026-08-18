@@ -1,0 +1,10 @@
+# >>> env-doctor hydrate >>>
+# Managed by env-doctor tier 3 — re-run: bash env-doctor.sh --init --tier 3 --yes
+export ENV_DOCTOR_REPO="/path/to/your/repo"
+if [[ -d "${ENV_DOCTOR_REPO}/.venv" ]]; then
+  _ed_bindir="${ENV_DOCTOR_REPO}/.venv/bin"
+  [[ -f "${ENV_DOCTOR_REPO}/.venv/Scripts/activate" ]] && _ed_bindir="${ENV_DOCTOR_REPO}/.venv/Scripts"
+  export PATH="${_ed_bindir}:${HOME}/.local/bin:${PATH}"
+  [[ -f "${_ed_bindir}/activate" ]] && source "${_ed_bindir}/activate"
+fi
+# <<< env-doctor hydrate <<<

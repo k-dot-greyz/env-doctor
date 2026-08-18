@@ -9,6 +9,8 @@ export PATH="${HOME}/.local/bin:${PATH}"
 # shellcheck source=tests/helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/helpers.sh"
 
+_setup_test_python314
+
 # Colors
 G=$'\033[32m'; RST=$'\033[0m'
 

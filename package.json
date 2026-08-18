@@ -1,0 +1,15 @@
+{
+  "name": "env-doctor-tests",
+  "private": true,
+  "description": "Bash + Playwright harness for env-doctor agent/UX/security flows",
+  "scripts": {
+    "test:bash": "bash tests/run.sh",
+    "test:pw": "playwright test",
+    "test": "npm run test:bash && npm run test:pw"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

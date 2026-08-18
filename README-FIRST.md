@@ -14,7 +14,9 @@ This kit contains everything you need to audit, standardize, and auto-heal your 
 - **CHANGELOG.md**: Full version history and release notes.
 - **LICENSE**: The GNU General Public License v3.0 (GPL-3.0).
 - **docs/**: Full architectural designs, threat models, and UX audits.
-- **templates/**: Reusable integration templates for AI agents (AGENTS.md), pre-commit hooks, and GitHub Actions.
+- **templates/**: Reusable integration templates for AI agents (`AGENTS.md`), pre-commit hooks, GitHub Actions, profile PATH snippets, and systemd user units.
+- **docs/STATUS.md**: Honest platform matrix — what works today vs planned follow-ups.
+- **docs/FOLLOW_UPS.md**: GitHub issue index for hydration and agentic dev hardening.
 - **examples/**: Real-world human-readable and JSON output samples generated directly from the tool.
 - **support/**: Intake forms for custom environment audits and custom check requests.
 

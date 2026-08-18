@@ -9,7 +9,19 @@ Tracked as GitHub issues tagged **`hydration-follow-up`** in the issue body (lab
 3. Branch: `greyzxcursor/<issue#>-short-description-6557`
 4. TDD: add tests in `tests/ubuntu-hydration.sh` or new `tests/hydration-*.sh` first.
 
-## Issue index
+## PR #15 merge prep (auth blockers + test harness)
+
+| # | Title | Area |
+|---|-------|------|
+| [#27](https://github.com/k-dot-greyz/env-doctor/issues/27) | Emit `next_cmd` in JSON envelope | Agents / JSON |
+| [#28](https://github.com/k-dot-greyz/env-doctor/issues/28) | CI Playwright job with npm cache | CI |
+| [#29](https://github.com/k-dot-greyz/env-doctor/issues/29) | Submodule init failure test coverage | Test |
+| [#30](https://github.com/k-dot-greyz/env-doctor/issues/30) | JSON escaping fuzz for hostile config values | Security |
+| [#31](https://github.com/k-dot-greyz/env-doctor/issues/31) | Sync dev-master dex pointer | Chore |
+| [#32](https://github.com/k-dot-greyz/env-doctor/issues/32) | Extract GitHub auth diagnostics to lib | Refactor |
+| [#33](https://github.com/k-dot-greyz/env-doctor/issues/33) | Unify bash + Playwright harness contract | Test / DX |
+
+## Issue index (hydration)
 
 | # | Title | Area |
 |---|-------|------|

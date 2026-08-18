@@ -19,15 +19,35 @@ Tracked as GitHub issues tagged **`hydration-follow-up`** in the issue body (lab
 | [#11](https://github.com/k-dot-greyz/env-doctor/issues/11) | CI distro matrix for hydration integration tests | CI |
 | [#12](https://github.com/k-dot-greyz/env-doctor/issues/12) | Extract lib/hydration manifest-driven install layer | Refactor |
 | [#13](https://github.com/k-dot-greyz/env-doctor/issues/13) | zsh default shell + portable profile hydration | Shell |
+| [#18](https://github.com/k-dot-greyz/env-doctor/issues/18) | T3 submodule hydration + guided TUI quickstart | UX |
+| [#20](https://github.com/k-dot-greyz/env-doctor/issues/20) | Post-init verify loop — re-ping deps after heal | Correctness |
+| [#21](https://github.com/k-dot-greyz/env-doctor/issues/21) | Zero-flag smart bootstrap (tier 1 deps by default) | UX |
+| [#22](https://github.com/k-dot-greyz/env-doctor/issues/22) | Tier 1 recommended tool hydration (gh, pre-commit, docker) | Stack |
+| [#23](https://github.com/k-dot-greyz/env-doctor/issues/23) | Init step transparency — stop silent `\|\| true` passes | Correctness |
+| [#24](https://github.com/k-dot-greyz/env-doctor/issues/24) | Graceful ablation matrix + polymorphic retry loop | Architecture |
 
 ## Suggested order
 
-1. **#12** scaffold (enables #8 and #9 without spaghetti)
-2. **#8** multi-distro backends (biggest reusability win)
-3. **#9** modern stack hydration
-4. **#10** agentic quickstarts (depends on stable hydration story)
-5. **#11** CI matrix (validates #8/#9)
-6. **#13** shell portability polish
+### Heal correctness (do first — unblocks white-glove UX)
+
+1. **#23** init transparency (stop false-green `_pass` on failed installs)
+2. **#20** post-init verify loop (re-ping deps after heal)
+3. **#24** ablation matrix + retry loop (predictable failure + transient recovery)
+
+### Onboarding UX (tier 1 by default)
+
+4. **#22** tier 1 tool hydration (gh, pre-commit, docker CLI)
+5. **#21** zero-flag smart bootstrap (common-sense tier 1 without flags)
+6. **#18** guided TUI / developer capability matrix (interactive flavor picker)
+
+### Platform & stack expansion
+
+7. **#12** scaffold (enables #8, #9, #24 without spaghetti)
+8. **#8** multi-distro backends (biggest reusability win)
+9. **#9** modern stack hydration
+10. **#10** agentic quickstarts (depends on stable hydration story)
+11. **#11** CI matrix (validates #8/#9)
+12. **#13** shell portability polish
 
 ## Search on GitHub
 

@@ -1,6 +1,10 @@
-# Test coverage decision log — env-doctor (2026-08-13)
+# Test coverage decision log — env-doctor
 
-## Target
+## Latest run (2026-08-18, branch 2a7b)
+
+See [`docs/TEST_COVERAGE_2026-08-18-agentic-security.md`](TEST_COVERAGE_2026-08-18-agentic-security.md) — CI repair for PR #17: merged `_check_python` pin logic, Playwright py314 harness, security.sh fixture isolation.
+
+## Prior run (2026-08-13, branch 92c7)
 
 `k-dot-greyz/env-doctor` branch `greyzxcursor/agentic-security-test-coverage-7db4`. Merges dinit auth blocker coverage (PR #14 / #15) with main's hydration and security harness work (PR #6).
 

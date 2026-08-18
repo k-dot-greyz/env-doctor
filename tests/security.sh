@@ -162,27 +162,32 @@ echo "Test 10: Shell metacharacters blocked at --brand boundary"
 assert_exit "--brand pipe rejected" 1 bash "$CANONICAL_SCRIPT" --brand 'evil|id'
 
 
-# ── Test 11: SSH-forcing insteadOf does not trigger false poison warning (Bug #51) ──
+# ── Test 11: Bug #51 — SSH-forcing insteadOf does not trigger poison warning ─
 echo "Test 11: Bug 51 regression — SSH-forcing insteadOf should not emit poison warning"
+bug51_repo="$(make_fixture_repo bug51-git-url bash -c 'true')"
 tmp_gitcfg="$(mktemp)"
 git config --file "$tmp_gitcfg" 'url.git@github.com:.insteadOf' 'https://github.com/'
-out_51="$(GIT_CONFIG_GLOBAL="$tmp_gitcfg" GIT_CONFIG_SYSTEM=/dev/null bash "$CANONICAL_SCRIPT" --json 2>&1 || true)"
-assert_not_contains "SSH-forcing insteadOf no false poison warn" "$out_51" "poison"
-rm -f "$tmp_gitcfg"
+json_out="$(mktemp)"
+GIT_CONFIG_GLOBAL="$tmp_gitcfg" run_doctor "$bug51_repo" --json -q >"$json_out" 2>/dev/null || true
+assert_not_contains "SSH-forcing insteadOf no false poison warn" "$(cat "$json_out")" "poison"
+rm -f "$tmp_gitcfg" "$json_out"
+rm -rf "$bug51_repo"
 
-# ── Test 12: ENV_DOCTOR_REPO metacharacters rejected by config parser (Bug #53) ──
+# ── Test 12: Bug #53 — ENV_DOCTOR_REPO metachar blocked in config parser ─────
 echo "Test 12: Bug 53 regression — ENV_DOCTOR_REPO metacharacter injection blocked in config"
-bug53_repo="$(make_fixture_repo bug53 bash -c "
-  cat > .env-doctor.conf <<'CFGEOF'
+cfg53_repo="$(make_fixture_repo bug53-config bash -c "
+  cat > .env-doctor.conf <<'EOF'
 ENV_DOCTOR_REPO=/tmp/\$(touch /tmp/ED53_CFG_INJECTED)
-CFGEOF
+EOF
 ")"
-out_53="$(run_doctor "$bug53_repo" --json 2>&1 || true)"
-assert_contains "Metacharacter in ENV_DOCTOR_REPO emits warning" "$out_53" "unsafe characters"
-assert_eq "No injection file created via config" "not created" \
-  "$([ -f /tmp/ED53_CFG_INJECTED ] && echo created || echo not created)"
-rm -f /tmp/ED53_CFG_INJECTED
-rm -rf "$bug53_repo"
+inject_marker="/tmp/ED53_CFG_INJECTED"
+rm -f "$inject_marker"
+json_out="$(mktemp)"
+run_doctor "$cfg53_repo" --json >"$json_out" 2>/dev/null || true
+assert_contains "Metacharacter in ENV_DOCTOR_REPO emits warning" "$(cat "$json_out")" "unsafe characters"
+assert_file_absent "No injection file created via config" "$inject_marker"
+rm -f "$json_out" "$inject_marker"
+rm -rf "$cfg53_repo"
 
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"

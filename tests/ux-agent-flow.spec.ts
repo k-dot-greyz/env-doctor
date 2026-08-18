@@ -2,7 +2,7 @@
  * Agent / cold-boot UX flows for env-doctor (CLI harness via Playwright).
  *
  * User stories (priority):
- * 1. Agent runs read-only discovery with machine-readable JSON before touching the repo.
+ * 1. Agent runs read-only discovery with machine-readable JSON before touching repo.
  * 2. Agent on generic repo must not spam submodule init hints unless --with-submodules.
  * 3. Agent opts into submodule scan explicitly with --with-submodules.
  * 4. Agent uses dry-run init to preview tier actions without mutation.
@@ -15,20 +15,14 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { runDoctorOutput } from "./pw-helpers";
+import { harnessDefaults, runDoctor } from "./playwright-harness";
 
 const repoRoot = join(__dirname, "..");
 const canonicalScript = join(repoRoot, "env-doctor.sh");
-const fixturePrefix = process.env.HARNESS_FIXTURE_PREFIX ?? "env-doctor-pw";
-const gitUserName = process.env.HARNESS_GIT_USER_NAME ?? "env-doctor-agent";
-const gitUserEmail = process.env.HARNESS_GIT_USER_EMAIL ?? "agent@users.noreply.github.com";
+const { fixturePrefix, gitUserName, gitUserEmail } = harnessDefaults;
 const githubHttpsRemote =
   process.env.HARNESS_GITHUB_HTTPS_REMOTE ?? "https://github.com/example/acme.git";
 const nextCmd = process.env.HARNESS_NEXT_CMD ?? "dinit auth";
-
-function runDoctor(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
-  return runDoctorOutput(join(cwd, "env-doctor.sh"), args, cwd, env);
-}
 
 function seedRepo(name: string, setup: (dir: string) => void): string {
   const dir = mkdtempSync(join(tmpdir(), `${fixturePrefix}-${name}-`));
@@ -46,8 +40,9 @@ test.describe("agent cold-boot flows", () => {
   test("US-1: JSON discovery is parseable and reports ok/issues", () => {
     const dir = seedRepo("json", () => {});
     try {
-      const out = runDoctor(dir, ["--json", "-q"]);
-      const body = JSON.parse(out) as {
+      const { stdout, code } = runDoctor(dir, ["--json", "-q"]);
+      expect(code).toBe(0);
+      const body = JSON.parse(stdout) as {
         ok: boolean;
         issues: number;
         warnings: number;
@@ -65,8 +60,9 @@ test.describe("agent cold-boot flows", () => {
   test("US-2: generic repo skips submodule scan unless opted in", () => {
     const dir = seedRepo("generic", () => {});
     try {
-      const out = runDoctor(dir, ["--json", "-q"]);
-      expect(out).toContain("scan skipped");
+      const { stdout, code } = runDoctor(dir, ["--json", "-q"]);
+      expect(code).toBe(0);
+      expect(stdout).toContain("scan skipped");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -81,8 +77,9 @@ test.describe("agent cold-boot flows", () => {
       );
     });
     try {
-      const out = runDoctor(dir, ["--with-submodules", "--json", "-q"]);
-      expect(out).not.toContain("scan skipped");
+      const { stdout, code } = runDoctor(dir, ["--with-submodules", "--json", "-q"]);
+      expect(code).toBe(0);
+      expect(stdout).not.toContain("scan skipped");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -93,8 +90,9 @@ test.describe("agent cold-boot flows", () => {
       writeFileSync(join(root, "pyproject.toml"), "[project]\n");
     });
     try {
-      const out = runDoctor(dir, ["-it0n"]);
-      expect(out.toLowerCase()).toContain("dry-run");
+      const { stdout, code } = runDoctor(dir, ["-it0n"]);
+      expect(code).toBe(0);
+      expect(stdout.toLowerCase()).toContain("dry-run");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -105,7 +103,8 @@ test.describe("agent cold-boot flows", () => {
       execFileSync("git", ["remote", "add", "origin", githubHttpsRemote], { cwd: root });
     });
     try {
-      const out = runDoctor(dir, []);
+      const { stdout, stderr } = runDoctor(dir, []);
+      const out = stdout + stderr;
       expect(out).toContain("blocker:");
       expect(out).toContain(nextCmd);
     } finally {

@@ -185,7 +185,7 @@ assert_file_not_contains() {
 run_doctor() {
   local repo="$1"
   shift
-  local global_cfg="${HARNESS_GIT_CONFIG_GLOBAL:-}"
+  local global_cfg="${HARNESS_GIT_CONFIG_GLOBAL:-${GIT_CONFIG_GLOBAL:-}}"
   local cleanup_cfg=false
   local rc=0
   if [[ -z "$global_cfg" ]]; then

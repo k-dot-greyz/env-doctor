@@ -62,6 +62,7 @@ ENV_DOCTOR_CORE_REPOS="${ENV_DOCTOR_CORE_REPOS:-}"
 ENV_DOCTOR_PYTHON_DEPS="${ENV_DOCTOR_PYTHON_DEPS:-}"
 ENV_DOCTOR_HELP_URL="${ENV_DOCTOR_HELP_URL:-}"
 ENV_DOCTOR_MIN_PYTHON_MINOR="${ENV_DOCTOR_MIN_PYTHON_MINOR:-14}"
+ENV_DOCTOR_PYTHON_PIN="${ENV_DOCTOR_PYTHON_PIN:-}"
 ENV_DOCTOR_PERSIST_PATH="${ENV_DOCTOR_PERSIST_PATH:-false}"
 ENV_DOCTOR_BOOT_AUDIT="${ENV_DOCTOR_BOOT_AUDIT:-false}"
 ENV_DOCTOR_REPO="${ENV_DOCTOR_REPO:-}"
@@ -320,7 +321,7 @@ _load_config() {
 
       # Allowlist check
       case "$key" in
-        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL|ENV_DOCTOR_MIN_PYTHON_MINOR|ENV_DOCTOR_PERSIST_PATH|ENV_DOCTOR_BOOT_AUDIT|ENV_DOCTOR_REPO)
+        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL|ENV_DOCTOR_MIN_PYTHON_MINOR|ENV_DOCTOR_PYTHON_PIN|ENV_DOCTOR_PERSIST_PATH|ENV_DOCTOR_BOOT_AUDIT|ENV_DOCTOR_REPO)
           # Strip surrounding single or double quotes from value
           if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
             val="${BASH_REMATCH[1]}"
@@ -362,6 +363,12 @@ _load_config() {
               continue
             fi
             ENV_DOCTOR_MIN_PYTHON_MINOR="$val"
+          elif [[ "$key" == "ENV_DOCTOR_PYTHON_PIN" ]]; then
+            if [[ ! "$val" =~ ^[0-9]+\.[0-9]+$ ]]; then
+              _warn "Config validation" "ENV_DOCTOR_PYTHON_PIN must be major.minor (e.g. 3.14). Skipping."
+              continue
+            fi
+            ENV_DOCTOR_PYTHON_PIN="$val"
           elif [[ "$key" == "ENV_DOCTOR_PERSIST_PATH" ]]; then
             case "$val" in
               true|yes|1) ENV_DOCTOR_PERSIST_PATH=true ;;
@@ -415,6 +422,12 @@ _bootstrap_env() {
     if [[ ! "$ENV_DOCTOR_PYTHON_DEPS" =~ ^[A-Za-z0-9_,-]*$ ]]; then
       _warn "Environment validation" "ENV_DOCTOR_PYTHON_DEPS contains unsafe characters. Resetting to empty."
       ENV_DOCTOR_PYTHON_DEPS=""
+    fi
+  fi
+  if [[ -n "${ENV_DOCTOR_PYTHON_PIN:-}" ]]; then
+    if [[ ! "$ENV_DOCTOR_PYTHON_PIN" =~ ^[0-9]+\.[0-9]+$ ]]; then
+      _warn "Environment validation" "ENV_DOCTOR_PYTHON_PIN must be major.minor (e.g. 3.14). Resetting."
+      ENV_DOCTOR_PYTHON_PIN=""
     fi
   fi
 }
@@ -604,7 +617,7 @@ Safety & Product:
 
 Optional repo config (sourced if present): .env-doctor.conf in repo root
   BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_HELP_URL,
-  ENV_DOCTOR_MIN_PYTHON_MINOR, ENV_DOCTOR_PERSIST_PATH, ENV_DOCTOR_BOOT_AUDIT, ENV_DOCTOR_REPO
+  ENV_DOCTOR_MIN_PYTHON_MINOR, ENV_DOCTOR_PYTHON_PIN, ENV_DOCTOR_PERSIST_PATH, ENV_DOCTOR_BOOT_AUDIT, ENV_DOCTOR_REPO
 
 Long forms:
   --init, --tier N, --dry-run, --json, --quiet, --submodules,
@@ -1251,8 +1264,14 @@ _check_tool() {
 }
 
 _check_python() {
-  local best="" best_ver="" py ver min_minor py_hint
+  local best="" best_ver="" py ver min_minor py_hint pin pin_explicit=false
   min_minor="${ENV_DOCTOR_MIN_PYTHON_MINOR:-14}"
+  if [[ -n "${ENV_DOCTOR_PYTHON_PIN:-}" ]]; then
+    pin="$ENV_DOCTOR_PYTHON_PIN"
+    pin_explicit=true
+  else
+    pin="3.${min_minor}"
+  fi
   for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
     if command -v "$py" &>/dev/null; then
       ver="$($py --version 2>&1 | awk '{print $2}')"
@@ -1260,7 +1279,12 @@ _check_python() {
         best="$py"
         best_ver="$ver"
       fi
-      if _python_version_meets_minimum "$ver"; then
+      if [[ "$ver" == "$pin"* ]] || [[ "$ver" == "${pin}."* ]]; then
+        _pass "python ($py)" "$ver (pinned $pin)"
+        BEST_PYTHON="$py"
+        return
+      fi
+      if [[ "$pin_explicit" == false ]] && _python_version_meets_minimum "$ver"; then
         _pass "python ($py)" "$ver"
         BEST_PYTHON="$py"
         return

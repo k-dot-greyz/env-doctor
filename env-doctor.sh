@@ -379,6 +379,12 @@ _load_config() {
               _warn "Config validation" "ENV_DOCTOR_REPO path too long. Skipping."
               continue
             fi
+            # Reject shell metacharacters — this value is later embedded verbatim
+            # into shell profile files (e.g. ~/.bashrc) and must be a clean path.
+            if [[ "$val" =~ [\$\`\;\&\|\<\>\(\)\\] ]] || [[ "$val" =~ $'\n' ]]; then
+              _warn "Config validation" "ENV_DOCTOR_REPO contains unsafe characters. Skipping."
+              continue
+            fi
             ENV_DOCTOR_REPO="$val"
           fi
           ;;
@@ -966,6 +972,13 @@ _hydrate_path_persistent() {
   fi
   if [[ "$ENV_DOCTOR_ASSUME_YES" != "true" ]]; then
     _warn "Consent required" "Skipping persistent PATH (set ENV_DOCTOR_PERSIST_PATH=true and use --yes)"
+    return 0
+  fi
+  # repo_path is embedded verbatim into shell code written to ~/.bashrc / ~/.zshrc.
+  # A path containing shell metacharacters would cause code execution on every new
+  # shell. Reject rather than silently corrupt the profile.
+  if [[ "$repo_path" =~ [\$\`\;\&\|\<\>\(\)\\] ]] || [[ "$repo_path" =~ $'\n' ]]; then
+    _warn "PATH (persistent)" "Skipping: ENV_DOCTOR_REPO contains unsafe characters (path may not contain shell metacharacters)"
     return 0
   fi
   bindir="$(_venv_bin_dir "$repo_path/.venv" 2>/dev/null || echo "$repo_path/.venv/bin")"

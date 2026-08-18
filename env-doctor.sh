@@ -20,6 +20,12 @@
 
 set -euo pipefail
 
+# Returns 0 when path contains metacharacters unsafe for profile snippet embed.
+_path_unsafe_for_profile_embed() {
+  local path="${1:-}"
+  [[ "$path" =~ [\$\`\;\&\|\<\>\(\)\\\"] ]] || [[ "$path" =~ $'\n' ]]
+}
+
 _error_trap() {
   local exit_code=$?
   [[ $exit_code -eq 0 ]] && return 0
@@ -381,7 +387,7 @@ _load_config() {
             fi
             # Reject shell metacharacters — this value is later embedded verbatim
             # into shell profile files (e.g. ~/.bashrc) and must be a clean path.
-            if [[ "$val" =~ [\$\`\;\&\|\<\>\(\)\\] ]] || [[ "$val" =~ $'\n' ]]; then
+            if _path_unsafe_for_profile_embed "$val"; then
               _warn "Config validation" "ENV_DOCTOR_REPO contains unsafe characters. Skipping."
               continue
             fi
@@ -977,7 +983,7 @@ _hydrate_path_persistent() {
   # repo_path is embedded verbatim into shell code written to ~/.bashrc / ~/.zshrc.
   # A path containing shell metacharacters would cause code execution on every new
   # shell. Reject rather than silently corrupt the profile.
-  if [[ "$repo_path" =~ [\$\`\;\&\|\<\>\(\)\\] ]] || [[ "$repo_path" =~ $'\n' ]]; then
+  if _path_unsafe_for_profile_embed "$repo_path"; then
     _warn "PATH (persistent)" "Skipping: ENV_DOCTOR_REPO contains unsafe characters (path may not contain shell metacharacters)"
     return 0
   fi

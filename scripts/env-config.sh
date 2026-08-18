@@ -9,11 +9,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/path-guard.sh disable=SC1091
+source "${SCRIPT_DIR}/lib/path-guard.sh"
 REPO_ROOT="${ENV_DOCTOR_REPO:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # REPO_ROOT is embedded verbatim into shell profile files. Reject paths containing
 # shell metacharacters that would cause code execution on shell startup.
-if [[ "$REPO_ROOT" =~ [\$\`\;\&\|\<\>\(\)\\] ]] || [[ "$REPO_ROOT" =~ $'\n' ]]; then
+if _path_unsafe_for_profile_embed "$REPO_ROOT"; then
   echo "env-config.sh: REPO_ROOT/ENV_DOCTOR_REPO contains unsafe characters; aborting." >&2
   exit 1
 fi

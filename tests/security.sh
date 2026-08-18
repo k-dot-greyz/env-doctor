@@ -167,6 +167,17 @@ _assert_equals "No injection file created via config" "not created" \
   "$([ -f /tmp/ED53_CFG_INJECTED ] && echo created || echo not created)"
 rm -f .env-doctor.conf /tmp/ED53_CFG_INJECTED
 
+# ── Test 9: ENV_DOCTOR_REPO with quote metachar rejected (Bug #54) ──
+echo "Test 9: Bug 54 regression — quote in ENV_DOCTOR_REPO blocked"
+cat > .env-doctor.conf << 'CFGEOF'
+ENV_DOCTOR_REPO=/tmp/foo"; touch /tmp/ED54_QUOTE_INJECTED; echo "
+CFGEOF
+out_54="$(bash ./env-doctor.sh --json 2>&1 || true)"
+_assert_contains "Quote in ENV_DOCTOR_REPO emits warning" "unsafe characters" "$out_54"
+_assert_equals "No injection file from quote metachar" "not created" \
+  "$([ -f /tmp/ED54_QUOTE_INJECTED ] && echo created || echo not created)"
+rm -f .env-doctor.conf /tmp/ED54_QUOTE_INJECTED
+
 echo ""
 echo "Test Summary: ${PASSED} passed, ${FAILED} failed."
 if [[ $FAILED -gt 0 ]]; then

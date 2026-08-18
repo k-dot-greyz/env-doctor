@@ -61,6 +61,10 @@ BRAND="${BRAND:-}"
 ENV_DOCTOR_CORE_REPOS="${ENV_DOCTOR_CORE_REPOS:-}"
 ENV_DOCTOR_PYTHON_DEPS="${ENV_DOCTOR_PYTHON_DEPS:-}"
 ENV_DOCTOR_HELP_URL="${ENV_DOCTOR_HELP_URL:-}"
+ENV_DOCTOR_MIN_PYTHON_MINOR="${ENV_DOCTOR_MIN_PYTHON_MINOR:-14}"
+ENV_DOCTOR_PERSIST_PATH="${ENV_DOCTOR_PERSIST_PATH:-false}"
+ENV_DOCTOR_BOOT_AUDIT="${ENV_DOCTOR_BOOT_AUDIT:-false}"
+ENV_DOCTOR_REPO="${ENV_DOCTOR_REPO:-}"
 ISSUES=0
 WARNINGS=0
 JSON_LINES=()
@@ -68,6 +72,7 @@ DOCTOR_NAME="env-doctor"
 ENV_DOCTOR_VERSION="1.2.0"
 UNSAFE_SOURCE_CONFIG=false
 ENV_DOCTOR_ASSUME_YES=false
+ENV_DOCTOR_NEXT_CMD=""
 # Color codes default to empty (no color) until _setup_colors runs.
 # Must be initialized here so _warn/_fail/_info are safe to call from
 # _bootstrap_env/_load_config, which execute BEFORE _setup_colors.
@@ -315,7 +320,7 @@ _load_config() {
 
       # Allowlist check
       case "$key" in
-        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL)
+        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL|ENV_DOCTOR_MIN_PYTHON_MINOR|ENV_DOCTOR_PERSIST_PATH|ENV_DOCTOR_BOOT_AUDIT|ENV_DOCTOR_REPO)
           # Strip surrounding single or double quotes from value
           if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
             val="${BASH_REMATCH[1]}"
@@ -351,6 +356,30 @@ _load_config() {
               continue
             fi
             ENV_DOCTOR_HELP_URL="$val"
+          elif [[ "$key" == "ENV_DOCTOR_MIN_PYTHON_MINOR" ]]; then
+            if [[ ! "$val" =~ ^[0-9]+$ ]] || [[ "$val" -lt 14 ]]; then
+              _warn "Config validation" "ENV_DOCTOR_MIN_PYTHON_MINOR must be >= 14. Skipping."
+              continue
+            fi
+            ENV_DOCTOR_MIN_PYTHON_MINOR="$val"
+          elif [[ "$key" == "ENV_DOCTOR_PERSIST_PATH" ]]; then
+            case "$val" in
+              true|yes|1) ENV_DOCTOR_PERSIST_PATH=true ;;
+              false|no|0) ENV_DOCTOR_PERSIST_PATH=false ;;
+              *) _warn "Config validation" "ENV_DOCTOR_PERSIST_PATH must be true/false. Skipping." ;;
+            esac
+          elif [[ "$key" == "ENV_DOCTOR_BOOT_AUDIT" ]]; then
+            case "$val" in
+              true|yes|1) ENV_DOCTOR_BOOT_AUDIT=true ;;
+              false|no|0) ENV_DOCTOR_BOOT_AUDIT=false ;;
+              *) _warn "Config validation" "ENV_DOCTOR_BOOT_AUDIT must be true/false. Skipping." ;;
+            esac
+          elif [[ "$key" == "ENV_DOCTOR_REPO" ]]; then
+            if [[ ${#val} -gt 512 ]]; then
+              _warn "Config validation" "ENV_DOCTOR_REPO path too long. Skipping."
+              continue
+            fi
+            ENV_DOCTOR_REPO="$val"
           fi
           ;;
       esac
@@ -480,6 +509,24 @@ EOF
 # ENV_DOCTOR_CORE_REPOS="shared-types|api-client"
 # ENV_DOCTOR_PYTHON_DEPS="yaml,click,pydantic,requests"
 # ENV_DOCTOR_HELP_URL="https://example.com/internal-setup"
+# ENV_DOCTOR_MIN_PYTHON_MINOR=14
+# ENV_DOCTOR_PERSIST_PATH=false
+# ENV_DOCTOR_BOOT_AUDIT=false
+# ENV_DOCTOR_REPO=
+EOF
+      exit 0 ;;
+    --print-profile-template)
+      cat <<'EOF'
+# >>> env-doctor hydrate >>>
+# Managed by env-doctor tier 3 — re-run: bash env-doctor.sh --init --tier 3 --yes
+export ENV_DOCTOR_REPO="/path/to/your/repo"
+if [[ -d "${ENV_DOCTOR_REPO}/.venv" ]]; then
+  _ed_bindir="${ENV_DOCTOR_REPO}/.venv/bin"
+  [[ -f "${ENV_DOCTOR_REPO}/.venv/Scripts/activate" ]] && _ed_bindir="${ENV_DOCTOR_REPO}/.venv/Scripts"
+  export PATH="${_ed_bindir}:${HOME}/.local/bin:${PATH}"
+  [[ -f "${_ed_bindir}/activate" ]] && source "${_ed_bindir}/activate"
+fi
+# <<< env-doctor hydrate <<<
 EOF
       exit 0 ;;
     --print-agent-template)
@@ -534,7 +581,7 @@ Usage:
   bash env-doctor.sh -i           # init tier 1
   bash env-doctor.sh -it0         # init tier 0 (venv + core deps only)
   bash env-doctor.sh -it2         # init tier 2 (full tooling + all submodules when enabled)
-  bash env-doctor.sh -it3         # init tier 3 (+ Docker services)
+  bash env-doctor.sh -it3         # init tier 3 (+ PATH, profile, boot hooks, Docker)
   bash env-doctor.sh -it2n        # tier 2 dry-run
   bash env-doctor.sh -j           # JSON for CI/agents
   bash env-doctor.sh -q           # exit code only
@@ -547,14 +594,16 @@ Safety & Product:
   bash env-doctor.sh --about      # print product info & license
   bash env-doctor.sh --print-config-template > .env-doctor.conf
   bash env-doctor.sh --print-agent-template > AGENTS.md
+  bash env-doctor.sh --print-profile-template  # shell PATH hydration snippet
 
 Optional repo config (sourced if present): .env-doctor.conf in repo root
-  BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_HELP_URL
+  BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_HELP_URL,
+  ENV_DOCTOR_MIN_PYTHON_MINOR, ENV_DOCTOR_PERSIST_PATH, ENV_DOCTOR_BOOT_AUDIT, ENV_DOCTOR_REPO
 
 Long forms:
   --init, --tier N, --dry-run, --json, --quiet, --submodules,
   --with-submodules, --brand, --version, --help, --safety, --about,
-  --print-config-template, --print-agent-template
+  --print-config-template, --print-agent-template, --print-profile-template
 
 Short flags:
   -i  init          -t N  tier (0-3)     -n  dry-run
@@ -563,10 +612,10 @@ Short flags:
 Combined:  -it2 = --init --tier 2    -iqt0 = --init --quiet --tier 0
 
 Tiers:
-  0  Python venv + install from pyproject when present
+  0  Python 3.14+ venv + install from pyproject when present
   1  + targeted submodule init (when .env-doctor.conf / scan enabled), dev extras, pre-commit
-  2  + all submodules (git submodule update --init), dev tools
-  3  + Docker services
+  2  + all submodules, native dev tools (apt on Ubuntu/Debian, brew on macOS)
+  3  + session PATH, persistent profile (opt-in), boot audit (opt-in), Docker compose
 
 Private repos over HTTPS/SSH:
   If submodule init fails, ensure SSH works (ssh -T git@github.com) or use HTTPS with a token.
@@ -761,6 +810,287 @@ _venv_activate() {
   source "$activate_script"
 }
 
+# ── Linux / Ubuntu hydration helpers ─────────────────────────────────────────
+_is_linux() {
+  [[ "$(uname -s)" == "Linux" ]]
+}
+
+_apt_available() {
+  command -v apt-get &>/dev/null
+}
+
+_tool_binary() {
+  case "$1" in
+    ripgrep) printf '%s' "rg" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+_tool_present() {
+  local tool="$1" binary
+  binary="$(_tool_binary "$tool")"
+  command -v "$binary" &>/dev/null
+}
+
+_tier2_pkg_manager() {
+  if _is_linux && _apt_available; then
+    printf '%s' "apt"
+  elif command -v brew &>/dev/null; then
+    printf '%s' "brew"
+  elif command -v winget &>/dev/null; then
+    printf '%s' "winget"
+  elif command -v choco &>/dev/null; then
+    printf '%s' "choco"
+  elif command -v scoop &>/dev/null; then
+    printf '%s' "scoop"
+  fi
+}
+
+_APT_UPDATED=false
+_apt_install() {
+  local critical="$1"
+  shift
+  local -a pkgs=("$@")
+  [[ ${#pkgs[@]} -eq 0 ]] && return 0
+  if [[ "$_APT_UPDATED" != "true" ]]; then
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq; then
+      if [[ "$critical" == "yes" ]]; then
+        _fail "apt update" "failed"
+        return 1
+      fi
+      return 1
+    fi
+    _APT_UPDATED=true
+  fi
+  if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}"; then
+    return 0
+  fi
+  if [[ "$critical" == "yes" ]]; then
+    _fail "apt install" "failed for: ${pkgs[*]}"
+  fi
+  return 1
+}
+
+_ensure_python314_ubuntu() {
+  if command -v python3.14 &>/dev/null; then
+    return 0
+  fi
+  if [[ "$ENV_DOCTOR_ASSUME_YES" != "true" ]]; then
+    _warn "Python 3.14" "not found (run with --yes to install via apt or uv)"
+    return 1
+  fi
+  if _apt_available; then
+    local distro_id=""
+    if [[ -f /etc/os-release ]]; then
+      # shellcheck disable=SC1091
+      . /etc/os-release
+      distro_id="${ID:-}"
+    fi
+    if [[ "$distro_id" == "ubuntu" ]]; then
+      echo "  Adding deadsnakes PPA for Python 3.14..." >&2
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common 2>/dev/null || true
+      sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
+      _APT_UPDATED=false
+    fi
+    if _apt_install no python3.14 python3.14-venv python3-pip 2>/dev/null; then
+      command -v python3.14 &>/dev/null && return 0
+    fi
+  fi
+  if ! command -v uv &>/dev/null; then
+    echo "  Installing uv for Python 3.14..." >&2
+    curl -LsSf https://astral.sh/uv/install.sh | sh 2>/dev/null || true
+    export PATH="${HOME}/.local/bin:${PATH}"
+  fi
+  if command -v uv &>/dev/null; then
+    uv python install 3.14 2>/dev/null || true
+    command -v python3.14 &>/dev/null && return 0
+  fi
+  _fail "Python 3.14" "install failed (try: sudo apt install python3.14 or uv python install 3.14)"
+  return 1
+}
+
+_python_version_meets_minimum() {
+  local ver="$1" major minor min_minor
+  min_minor="${ENV_DOCTOR_MIN_PYTHON_MINOR:-14}"
+  major="$(echo "$ver" | cut -d. -f1)"
+  minor="$(echo "$ver" | cut -d. -f2)"
+  [[ "$major" -ge 3 ]] && [[ "$minor" -ge "$min_minor" ]]
+}
+
+_HYDRATE_PROFILE_START="# >>> env-doctor hydrate >>>"
+_HYDRATE_PROFILE_END="# <<< env-doctor hydrate <<<"
+
+_hydrate_path_session() {
+  local -a prepend=()
+  local bindir entry new_path="" existing
+  if bindir="$(_venv_bin_dir "$REPO_ROOT/.venv" 2>/dev/null)"; then
+    prepend+=("$bindir")
+  fi
+  [[ -d "$REPO_ROOT/bin" ]] && prepend+=("$REPO_ROOT/bin")
+  [[ -d "$HOME/.local/bin" ]] && prepend+=("$HOME/.local/bin")
+  for entry in "${prepend[@]}"; do
+    case ":$PATH:" in
+      *":$entry:"*) ;;
+      *)
+        new_path="${entry}${new_path:+:}${new_path}"
+        ;;
+    esac
+  done
+  if [[ -n "$new_path" ]]; then
+    PATH="${new_path}:${PATH}"
+    export PATH
+    existing="${prepend[*]}"
+    _pass "PATH (session)" "$existing"
+  fi
+}
+
+_hydrate_profile_targets() {
+  local -a targets=()
+  if [[ "${SHELL:-}" == *zsh* ]] || [[ -f "$HOME/.zshrc" ]]; then
+    targets+=("$HOME/.zshrc")
+  fi
+  targets+=("$HOME/.bashrc")
+  [[ -f "$HOME/.profile" ]] && targets+=("$HOME/.profile")
+  printf '%s\n' "${targets[@]}"
+}
+
+_hydrate_path_persistent() {
+  local repo_path="${ENV_DOCTOR_REPO:-$REPO_ROOT}"
+  local bindir block target
+  if [[ "$ENV_DOCTOR_PERSIST_PATH" != "true" ]]; then
+    return 0
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    _info "Would append" "PATH block to shell profile (requires --yes)"
+    return 0
+  fi
+  if [[ "$ENV_DOCTOR_ASSUME_YES" != "true" ]]; then
+    _warn "Consent required" "Skipping persistent PATH (set ENV_DOCTOR_PERSIST_PATH=true and use --yes)"
+    return 0
+  fi
+  bindir="$(_venv_bin_dir "$repo_path/.venv" 2>/dev/null || echo "$repo_path/.venv/bin")"
+  block="${_HYDRATE_PROFILE_START}
+# Managed by env-doctor tier 3 — re-run: bash env-doctor.sh --init --tier 3 --yes
+export ENV_DOCTOR_REPO=\"${repo_path}\"
+if [[ -d \"\${ENV_DOCTOR_REPO}/.venv\" ]]; then
+  _ed_bindir=\"\${ENV_DOCTOR_REPO}/.venv/bin\"
+  [[ -f \"\${ENV_DOCTOR_REPO}/.venv/Scripts/activate\" ]] && _ed_bindir=\"\${ENV_DOCTOR_REPO}/.venv/Scripts\"
+  export PATH=\"\${_ed_bindir}:\${HOME}/.local/bin:\${PATH}\"
+  [[ -f \"\${_ed_bindir}/activate\" ]] && source \"\${_ed_bindir}/activate\"
+fi
+${_HYDRATE_PROFILE_END}"
+  while IFS= read -r target; do
+    [[ -z "$target" ]] && continue
+    [[ -f "$target" ]] || touch "$target"
+    if grep -qF "$_HYDRATE_PROFILE_START" "$target" 2>/dev/null; then
+      _info "Profile" "hydration block already in $(basename "$target")"
+      continue
+    fi
+    printf '\n%s\n' "$block" >>"$target"
+    _pass "PATH (persistent)" "appended to $(basename "$target")"
+  done < <(_hydrate_profile_targets)
+}
+
+_hydrate_boot_audit() {
+  local config_script="${REPO_ROOT}/scripts/env-config.sh"
+  if [[ "$ENV_DOCTOR_BOOT_AUDIT" != "true" ]]; then
+    return 0
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    _info "Would install" "boot/login env-doctor audit hooks"
+    return 0
+  fi
+  if [[ "$ENV_DOCTOR_ASSUME_YES" != "true" ]]; then
+    _warn "Consent required" "Skipping boot audit hooks (set ENV_DOCTOR_BOOT_AUDIT=true and use --yes)"
+    return 0
+  fi
+  if [[ -x "$config_script" ]]; then
+    ENV_DOCTOR_REPO="${ENV_DOCTOR_REPO:-$REPO_ROOT}" bash "$config_script" install
+    _pass "Boot audit" "login hooks installed via scripts/env-config.sh"
+  else
+    _warn "Boot audit" "scripts/env-config.sh not found or not executable"
+  fi
+}
+
+_find_compose_file() {
+  local f
+  for f in docker-compose.yml docker-compose.yaml compose.yaml compose.yml; do
+    if [[ -f "$REPO_ROOT/$f" ]]; then
+      printf '%s\n' "$REPO_ROOT/$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_tier2_install_tool() {
+  local tool="$1" mgr binary winget_tool
+  binary="$(_tool_binary "$tool")"
+  mgr="$(_tier2_pkg_manager)"
+  if _tool_present "$tool"; then
+    return 0
+  fi
+  case "$mgr" in
+    apt)
+      if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+        echo "  apt install $tool..." >&2
+        _apt_install no "$tool" || _warn "apt install" "failed for $tool"
+      else
+        _warn "Consent required" "Skipping 'sudo apt-get install -y $tool' (run with --yes or -y)"
+      fi
+      ;;
+    brew)
+      if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+        echo "  brew install $tool..." >&2
+        brew install "$tool" 2>/dev/null || _warn "brew install" "failed for $tool"
+      else
+        _warn "Consent required" "Skipping 'brew install $tool' (run with --yes or -y)"
+      fi
+      ;;
+    winget)
+      winget_tool="$tool"
+      [[ "$tool" == "ripgrep" ]] && winget_tool="BurntSushi.ripgrep"
+      [[ "$tool" == "shellcheck" ]] && winget_tool="koalaman.shellcheck"
+      if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+        winget install --silent --accept-source-agreements --accept-package-agreements "$winget_tool" 2>/dev/null || true
+      else
+        _warn "Consent required" "Skipping 'winget install $winget_tool' (run with --yes or -y)"
+      fi
+      ;;
+    choco)
+      if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+        choco install -y "$tool" 2>/dev/null || true
+      else
+        _warn "Consent required" "Skipping 'choco install -y $tool' (run with --yes or -y)"
+      fi
+      ;;
+    scoop)
+      if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+        scoop install "$tool" 2>/dev/null || true
+      else
+        _warn "Consent required" "Skipping 'scoop install $tool' (run with --yes or -y)"
+      fi
+      ;;
+  esac
+}
+
+_tier2_plan_tool() {
+  local tool="$1" mgr
+  mgr="$(_tier2_pkg_manager)"
+  _tool_present "$tool" && return 0
+  case "$mgr" in
+    apt) _info "Would run" "apt install $tool" ;;
+    brew) _info "Would run" "brew install $tool" ;;
+    winget)
+      local winget_tool="$tool"
+      [[ "$tool" == "ripgrep" ]] && winget_tool="BurntSushi.ripgrep"
+      [[ "$tool" == "shellcheck" ]] && winget_tool="koalaman.shellcheck"
+      _info "Would run" "winget install $winget_tool" ;;
+    choco) _info "Would run" "choco install -y $tool" ;;
+    scoop) _info "Would run" "scoop install $tool" ;;
+  esac
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Core Tooling Discovery
 # ═════════════════════════════════════════════════════════════════════════════
@@ -908,18 +1238,16 @@ _check_tool() {
 }
 
 _check_python() {
-  local best="" best_ver=""
+  local best="" best_ver="" py ver min_minor py_hint
+  min_minor="${ENV_DOCTOR_MIN_PYTHON_MINOR:-14}"
   for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
     if command -v "$py" &>/dev/null; then
-      local ver
       ver="$($py --version 2>&1 | awk '{print $2}')"
-      local major minor
-      major="$(echo "$ver" | cut -d. -f1)"
-      minor="$(echo "$ver" | cut -d. -f2)"
       if [[ -z "$best" ]]; then
-        best="$py"; best_ver="$ver"
+        best="$py"
+        best_ver="$ver"
       fi
-      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]]; then
+      if _python_version_meets_minimum "$ver"; then
         _pass "python ($py)" "$ver"
         BEST_PYTHON="$py"
         return
@@ -927,12 +1255,15 @@ _check_python() {
     fi
   done
   if [[ -n "$best" ]]; then
-    local py_hint="3.10+ recommended"
-    [[ -f "$REPO_ROOT/pyproject.toml" ]] && py_hint="3.10+ recommended (see pyproject.toml)"
-    _warn "python ($best)" "$best_ver ($py_hint)"
-    BEST_PYTHON="$best"
+    py_hint="3.${min_minor}+ required"
+    [[ -f "$REPO_ROOT/pyproject.toml" ]] && py_hint="3.${min_minor}+ required (see pyproject.toml)"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      py_hint="${py_hint}; run: dinit purge-python on macOS"
+    fi
+    _fail "python ($best)" "$best_ver ($py_hint)"
+    BEST_PYTHON=""
   else
-    _fail "python" "not found"
+    _fail "python" "not found (requires 3.${min_minor}+)"
     BEST_PYTHON=""
   fi
 }
@@ -1059,6 +1390,82 @@ phase3_git() {
   fi
 }
 
+_gh_auth_out() {
+  _timeout_cmd 5 gh auth status 2>&1 || true
+}
+
+_gh_has_scope() {
+  local scope="$1" auth_out="$2" scopes
+  scopes="$(
+    printf '%s\n' "$auth_out" |
+      sed -n 's/.*Token scopes:[[:space:]]*//p' |
+      tr -d "'[:space:]"
+  )"
+  [[ ",$scopes," == *,"$scope",* ]]
+}
+
+_suggest_dinit_auth() {
+  ENV_DOCTOR_NEXT_CMD="dinit auth"
+}
+
+_check_gh_auth() {
+  if ! command -v gh &>/dev/null; then
+    _info "gh auth" "skipped (gh CLI not found)"
+    return 0
+  fi
+
+  local auth_out
+  auth_out="$(_gh_auth_out)"
+
+  if echo "$auth_out" | grep -q 'token in keyring is invalid'; then
+    _warn "gh auth" "token invalid (keychain stale)"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  if ! _timeout_cmd 5 gh auth status &>/dev/null; then
+    _warn "gh auth" "not authenticated"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  if ! _gh_has_scope repo "$auth_out"; then
+    _warn "gh auth" "missing repo scope"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  if ! _gh_has_scope admin:public_key "$auth_out"; then
+    _warn "gh auth" "missing admin:public_key scope (SSH keys)"
+    _suggest_dinit_auth
+    return 0
+  fi
+
+  _pass "gh auth" "authenticated"
+}
+
+_check_github_git_urls() {
+  cd "$REPO_ROOT" 2>/dev/null || return 0
+
+  local url
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  if [[ "$url" == https://github.com/* ]]; then
+    _warn "git remote" "origin uses HTTPS (submodules may prompt for password)"
+    _suggest_dinit_auth
+  elif [[ -n "$url" ]]; then
+    _pass "git remote" "origin configured"
+  fi
+
+  local key val
+  while IFS= read -r key val; do
+    [[ -z "$key" ]] && continue
+    if [[ "$key" == *"https://github.com"* ]] || [[ "$val" == "git@github.com:" ]]; then
+      _warn "git config" "HTTPS override poison detected ($key)"
+      _suggest_dinit_auth
+    fi
+  done < <(git config --global --get-regexp '^url\..*\.insteadOf$' 2>/dev/null || true)
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 4: Credential & Config Discovery
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1097,14 +1504,8 @@ phase4_creds() {
     fi
   fi
 
-  # gh auth
-  if command -v gh &>/dev/null; then
-    if gh auth status 2>&1 | grep -q "Logged in"; then
-      _pass "gh auth" "authenticated"
-    else
-      _warn "gh auth" "not authenticated (run: gh auth login)"
-    fi
-  fi
+  _check_gh_auth
+  _check_github_git_urls
 
   # Docker daemon
   if command -v docker &>/dev/null; then
@@ -1134,6 +1535,11 @@ phase4_creds() {
   fi
 }
 
+_submodule_init_hint() {
+  echo "    next: dinit auth" >&2
+  _suggest_dinit_auth
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHASE 5: Progressive Init (--init only)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1146,9 +1552,26 @@ phase5_init() {
 
   cd "$REPO_ROOT" || { _fail "Directory change" "failed to cd to REPO_ROOT"; return 1; }
 
+  if [[ "$DRY_RUN" != "true" ]]; then
+    export GIT_TERMINAL_PROMPT=0
+  fi
+
   # ── Tier 0: Venv + core deps ──
   if [[ "$INIT_TIER" -ge 0 ]]; then
     _info "Tier 0" "Python venv + core deps"
+    local need_py=false py_ver=""
+    if [[ -z "${BEST_PYTHON:-}" ]]; then
+      need_py=true
+    elif command -v "$BEST_PYTHON" &>/dev/null; then
+      py_ver="$($BEST_PYTHON --version 2>&1 | awk '{print $2}')"
+      _python_version_meets_minimum "$py_ver" || need_py=true
+    else
+      need_py=true
+    fi
+    if [[ "$need_py" == true ]] && _is_linux && _apt_available; then
+      _ensure_python314_ubuntu || true
+      _check_python
+    fi
     if [[ -z "${BEST_PYTHON:-}" ]]; then
       _fail "Init aborted" "no Python found"
       return 1
@@ -1181,21 +1604,33 @@ phase5_init() {
     else
       if [[ ! -d .venv ]]; then
         echo "  Creating .venv with $BEST_PYTHON..." >&2
-        "$BEST_PYTHON" -m venv .venv
+        if ! "$BEST_PYTHON" -m venv .venv 2>/dev/null; then
+          if [[ "$INIT_TIER" -eq 0 ]]; then
+            _fail "Tier 0 init" "venv creation failed"
+            return 1
+          fi
+          _warn "Tier 0 init" "venv creation failed (continuing to higher tiers)"
+        fi
       fi
-      _venv_activate .venv || return 1
-
-      if [[ "${PKG_MANAGER:-}" == "poetry" ]]; then
-        echo "  Installing deps via poetry..." >&2
-        poetry install --no-interaction --no-root
-      elif [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
-        echo "  Installing deps via pip (editable)..." >&2
-        pip install -e . --quiet
-      elif [[ -f requirements.txt ]]; then
-        echo "  Installing deps via pip (requirements.txt)..." >&2
-        pip install -r requirements.txt --quiet
-      else
-        _info "Tier 0 install" "no Python package manifest at repo root; venv created, install skipped"
+      if [[ -d .venv ]]; then
+        if _venv_activate .venv; then
+          if [[ "${PKG_MANAGER:-}" == poetry ]]; then
+            echo "  Installing deps via poetry..." >&2
+            poetry install --no-interaction --no-root
+          elif [[ -f pyproject.toml ]] || [[ -f setup.py ]] || [[ -f setup.cfg ]]; then
+            echo "  Installing deps via pip (editable)..." >&2
+            pip install -e . --quiet
+          elif [[ -f requirements.txt ]]; then
+            echo "  Installing deps via pip (requirements.txt)..." >&2
+            pip install -r requirements.txt --quiet
+          else
+            _info "Tier 0 install" "no Python package manifest at repo root; venv created, install skipped"
+          fi
+        elif [[ "$INIT_TIER" -eq 0 ]]; then
+          return 1
+        else
+          _warn "Tier 0 init" "venv activation failed (continuing to higher tiers)"
+        fi
       fi
       _pass "Tier 0 init" "venv + core deps installed"
     fi
@@ -1234,7 +1669,10 @@ phase5_init() {
               if [[ -n "${ENV_DOCTOR_HELP_URL:-}" ]]; then
                 echo "    See: $ENV_DOCTOR_HELP_URL" >&2
               fi
+            else
+              echo "    ⚠️  Submodule init failed (auth or network)" >&2
             fi
+            _submodule_init_hint
           fi
         done
       fi
@@ -1262,31 +1700,17 @@ phase5_init() {
   # ── Tier 2: All submodules + dev tools ──
   if [[ "$INIT_TIER" -ge 2 ]]; then
     _info "Tier 2" "All submodules + dev tools"
+    local tool
 
     if [[ "$DRY_RUN" == "true" ]]; then
       _info "Would run" "git submodule update --init"
-      if command -v brew &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          ! command -v "$tool" &>/dev/null && _info "Would run" "brew install $tool"
-        done
-      elif command -v apt-get &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
+      for tool in ripgrep shellcheck yamllint; do
+        _tier2_plan_tool "$tool"
+      done
+      if _is_linux && _apt_available; then
+        ! command -v python3.14 &>/dev/null && _info "Would run" "apt install python3.14 python3.14-venv (or uv python install 3.14)"
+        for tool in git curl ca-certificates; do
           ! command -v "$tool" &>/dev/null && _info "Would run" "apt install $tool"
-        done
-      elif command -v winget &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          local winget_tool="$tool"
-          [[ "$tool" == "ripgrep" ]] && winget_tool="BurntSushi.ripgrep"
-          [[ "$tool" == "shellcheck" ]] && winget_tool="koalaman.shellcheck"
-          ! command -v "$tool" &>/dev/null && _info "Would run" "winget install --silent --accept-source-agreements --accept-package-agreements $winget_tool"
-        done
-      elif command -v choco &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          ! command -v "$tool" &>/dev/null && _info "Would run" "choco install -y $tool"
-        done
-      elif command -v scoop &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          ! command -v "$tool" &>/dev/null && _info "Would run" "scoop install $tool"
         done
       fi
       _pass "Tier 2 init" "planned (dry-run)"
@@ -1294,87 +1718,53 @@ phase5_init() {
       echo "  Initializing all submodules..." >&2
       _timeout_cmd 60 git submodule update --init 2>/dev/null || true
 
-      if command -v brew &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          if ! command -v "$tool" &>/dev/null; then
-            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
-              echo "  brew install $tool..." >&2
-              brew install "$tool" 2>/dev/null || true
-            else
-              _warn "Consent required" "Skipping 'brew install $tool' (run with --yes or -y to authorize)"
-            fi
-          fi
+      if _is_linux && _apt_available && [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
+        for tool in git curl ca-certificates; do
+          command -v "$tool" &>/dev/null || _apt_install no "$tool" || true
         done
-      elif command -v apt-get &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          if ! command -v "$tool" &>/dev/null; then
-            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
-              echo "  apt install $tool..." >&2
-              sudo apt-get install -y "$tool" 2>/dev/null || true
-            else
-              _warn "Consent required" "Skipping 'sudo apt-get install -y $tool' (run with --yes or -y to authorize)"
-            fi
-          fi
-        done
-      elif command -v winget &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          if ! command -v "$tool" &>/dev/null; then
-            local winget_tool="$tool"
-            [[ "$tool" == "ripgrep" ]] && winget_tool="BurntSushi.ripgrep"
-            [[ "$tool" == "shellcheck" ]] && winget_tool="koalaman.shellcheck"
-            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
-              echo "  winget install --silent --accept-source-agreements --accept-package-agreements $winget_tool..." >&2
-              winget install --silent --accept-source-agreements --accept-package-agreements "$winget_tool" 2>/dev/null || true
-            else
-              _warn "Consent required" "Skipping 'winget install $winget_tool' (run with --yes or -y to authorize)"
-            fi
-          fi
-        done
-      elif command -v choco &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          if ! command -v "$tool" &>/dev/null; then
-            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
-              echo "  choco install -y $tool..." >&2
-              choco install -y "$tool" 2>/dev/null || true
-            else
-              _warn "Consent required" "Skipping 'choco install -y $tool' (run with --yes or -y to authorize)"
-            fi
-          fi
-        done
-      elif command -v scoop &>/dev/null; then
-        for tool in ripgrep shellcheck yamllint; do
-          if ! command -v "$tool" &>/dev/null; then
-            if [[ "$ENV_DOCTOR_ASSUME_YES" == "true" ]]; then
-              echo "  scoop install $tool..." >&2
-              scoop install "$tool" 2>/dev/null || true
-            else
-              _warn "Consent required" "Skipping 'scoop install $tool' (run with --yes or -y to authorize)"
-            fi
-          fi
-        done
+        command -v python3.14 &>/dev/null || _ensure_python314_ubuntu || true
+        _check_python
       fi
+
+      for tool in ripgrep shellcheck yamllint; do
+        _tier2_install_tool "$tool"
+      done
 
       _pass "Tier 2 init" "all submodules + dev tools"
     fi
   fi
 
-  # ── Tier 3: Docker services ──
+  # ── Tier 3: PATH hydration + boot hooks + Docker services ──
   if [[ "$INIT_TIER" -ge 3 ]]; then
-    _info "Tier 3" "Docker services"
+    _info "Tier 3" "PATH hydration + boot hooks + Docker services"
 
     if [[ "$DRY_RUN" == "true" ]]; then
+      _info "Would run" "_hydrate_path_session"
+      _hydrate_path_persistent
+      _hydrate_boot_audit
       if command -v docker &>/dev/null; then
-        _info "Would run" "docker compose up -d"
+        local compose_file
+        compose_file="$(_find_compose_file 2>/dev/null || true)"
+        [[ -n "$compose_file" ]] && _info "Would run" "docker compose -f $compose_file up -d"
       fi
       _pass "Tier 3 init" "planned (dry-run)"
-    elif _timeout_cmd 3 docker info &>/dev/null 2>&1; then
-      if [[ -f "$REPO_ROOT/docker-compose.yml" ]]; then
-        echo "  Starting docker-compose services..." >&2
-        docker compose -f "$REPO_ROOT/docker-compose.yml" up -d 2>/dev/null || true
-      fi
-      _pass "Tier 3 init" "Docker services started"
     else
-      _warn "Tier 3 init" "Docker not reachable, skipped"
+      _hydrate_path_session
+      _hydrate_path_persistent
+      _hydrate_boot_audit
+
+      if _timeout_cmd 3 docker info &>/dev/null 2>&1; then
+        local compose_file
+        if compose_file="$(_find_compose_file 2>/dev/null)"; then
+          echo "  Starting docker compose services..." >&2
+          docker compose -f "$compose_file" up -d 2>/dev/null || true
+          _pass "Tier 3 init" "PATH hydrated + Docker services started"
+        else
+          _pass "Tier 3 init" "PATH hydrated (no compose file found)"
+        fi
+      else
+        _pass "Tier 3 init" "PATH hydrated (Docker not reachable, skipped)"
+      fi
     fi
   fi
 }
@@ -1416,8 +1806,15 @@ summary() {
   fi
 
   if [[ "$DO_INIT" == false ]] && [[ "$QUIET" == false ]]; then
-    printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
-    printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"
+    if [[ -n "$ENV_DOCTOR_NEXT_CMD" ]]; then
+      # shellcheck disable=SC2059
+      printf "\n${Y}  blocker:${RST} GitHub auth / git URLs need fixing\n"
+      # shellcheck disable=SC2059
+      printf "${DIM}  next: %s${RST}\n\n" "$ENV_DOCTOR_NEXT_CMD"
+    else
+      printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
+      printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"
+    fi
   fi
 }
 

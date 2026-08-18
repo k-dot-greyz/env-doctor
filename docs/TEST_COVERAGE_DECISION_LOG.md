@@ -1,6 +1,10 @@
-# Test coverage decision log — env-doctor (2026-08-13)
+# Test coverage decision log — env-doctor
 
-## Target
+## Latest run (2026-08-18, branch 2a7b)
+
+See [`docs/TEST_COVERAGE_2026-08-18-agentic-security.md`](TEST_COVERAGE_2026-08-18-agentic-security.md) — CI repair for PR #17: merged `_check_python` pin logic, Playwright py314 harness, security.sh fixture isolation.
+
+## Prior run (2026-08-13, branch 92c7)
 
 `k-dot-greyz/env-doctor` on branch `greyzxcursor/agentic-security-test-coverage-92c7`. Automation triggered by CI failure on PR #4 (`greyzxc/critical-correctness-bugs-8ef4`) — shellcheck warnings in an older monolithic `tests/run.sh`. This run adds security/UX coverage for merged Windows venv hardening and agentic boundary paths.
 

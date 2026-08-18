@@ -396,32 +396,65 @@ fi
 rm -f "$text_out"
 rm -rf "$broken_venv_repo"
 
-# ── Bug: _check_python pin — exact pin match should PASS, not WARN ────────────
-# Regression for: major/minor fallback block silently overwrote `best` with the
-# LOWEST available Python because loop goes high→low and the guard was missing.
-# When pin matches the installed Python, we must get a [PASS] line, not [WARN].
+# ── Bug: _check_python min — installed Python meeting minimum should PASS ─────
+# Regression for: fallback selection picked the lowest available Python because
+# loop order was used instead of comparing reported versions.
 if command -v python3 &>/dev/null; then
   current_py_ver="$(python3 --version 2>&1 | awk '{print $2}')"
-  # Strip patch → "3.12.4" → "3.12"
-  current_py_minor="${current_py_ver%.*}"
-  pin_repo="$(make_fixture_repo py-pin-pass bash -c 'echo "[project]" > pyproject.toml')"
+  current_py_minor="$(echo "$current_py_ver" | cut -d. -f2)"
+  pin_repo="$(make_fixture_repo py-min-pass bash -c 'echo "[project]" > pyproject.toml')"
   json_out="$(mktemp)"
-  ENV_DOCTOR_PYTHON_PIN="$current_py_minor" run_doctor "$pin_repo" --json -q >"$json_out" 2>/dev/null || true
+  ENV_DOCTOR_MIN_PYTHON_MINOR="$current_py_minor" run_doctor "$pin_repo" --json -q >"$json_out" 2>/dev/null || true
   TESTS_RUN=$((TESTS_RUN + 1))
   if ! python3 -c "
 import json, sys
 d = json.load(open('$json_out'))
 for row in d.get('results', []):
-    if row.get('type') == 'pass' and 'python' in row.get('key','') and 'pinned' in row.get('value',''):
+    if row.get('type') == 'pass' and 'python' in row.get('key',''):
         sys.exit(0)
 sys.exit(1)
 " 2>/dev/null; then
-    echo "FAIL: python pin match should emit a [PASS] with 'pinned' in value" >&2
+    echo "FAIL: python meeting ENV_DOCTOR_MIN_PYTHON_MINOR should emit a [PASS]" >&2
     TESTS_FAILED=$((TESTS_FAILED + 1))
   fi
   rm -f "$json_out"
   rm -rf "$pin_repo"
 fi
+
+# ── Bug: _check_python must pick highest version, not first loop match ────────
+# When python3 reports a newer version than an earlier versioned binary (e.g.
+# python3=3.15 while python3.12 exists but python3.15 is not in the candidate
+# list), BEST_PYTHON must follow the reported version, not loop order.
+py_best_repo="$(make_fixture_repo py-best-version bash -c 'echo "[project]" > pyproject.toml')"
+py_stub_dir="$(mktemp -d)"
+mkdir -p "$py_stub_dir/bin"
+cat >"$py_stub_dir/bin/python3.12" <<'PYSTUB'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--version" ]] && { echo "Python 3.12.0"; exit 0; }
+exit 1
+PYSTUB
+cat >"$py_stub_dir/bin/python3" <<'PYSTUB'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--version" ]] && { echo "Python 3.15.0"; exit 0; }
+exit 1
+PYSTUB
+chmod +x "$py_stub_dir/bin/"*
+json_out="$(mktemp)"
+PATH="$py_stub_dir/bin:/usr/bin:/bin" ENV_DOCTOR_MIN_PYTHON_MINOR=14 run_doctor "$py_best_repo" --json -q >"$json_out" 2>/dev/null || true
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if 'python' in row.get('key','') and '3.15' in row.get('value',''):
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+  echo "FAIL: _check_python should pick python3 (3.15) over python3.12 when newer" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$json_out"
+rm -rf "$py_best_repo" "$py_stub_dir"
 
 # ── Bug: _check_github_git_urls — IFS= broke key/val split (false positive) ──
 # SSH-forcing override url.git@github.com:.insteadOf https://github.com/ is a

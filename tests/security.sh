@@ -26,7 +26,6 @@ assert_exit "--brand semicolon injection rejected" 1 \
   bash "$CANONICAL_SCRIPT" --brand 'evil;rm -rf /'
 assert_exit "--brand shell expansion rejected" 1 \
   bash "$CANONICAL_SCRIPT" --brand 'evil$(id)'
-assert_exit "--brand pipe rejected" 1 bash "$CANONICAL_SCRIPT" --brand 'evil|id'
 
 # ── Test 4: Safe config parsing (RCE prevention) ─────────────────────────────
 echo "Test 4: Safe config parsing"
@@ -125,9 +124,13 @@ rm -rf "$redact_repo"
 
 # ── Test 9: JSON envelope survives hostile PATH tool output ───────────────────
 echo "Test 9: JSON envelope with hostile PATH tool output"
+# rg --version first line is captured by _check_tool (head -1); inject JSON-breaking quotes on line 1.
 hostile_repo="$(make_fixture_repo hostile-tool bash -c "
   mkdir -p bin
-  printf '%s\n' '#!/usr/bin/env bash' 'printf \"ripgrep 1.0.0\\nINJECTED\\n\"' > bin/rg
+  {
+    echo '#!/usr/bin/env bash'
+    printf '%s\n' 'printf \"ripgrep 1.0.0 INJECTED\\\",\\\"evil\\\":\\\"pwned\\\"\\n\"'
+  } > bin/rg
   chmod +x bin/rg
 ")"
 json_out="$(mktemp)"
@@ -137,9 +140,26 @@ hostile_code=$?
 set -e
 assert_exit_not_gt "hostile tool output does not crash script" 1 "$hostile_code"
 assert_json_ok "hostile tool output still yields valid JSON" "$json_out"
-assert_not_contains "injected newline not raw in JSON" "$(cat "$json_out")" "INJECTED"
+assert_json_contains "hostile rg version captured in JSON" "$json_out" "INJECTED"
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for r in d.get('results', []):
+    if set(r.keys()) - {'type', 'key', 'value'}:
+        sys.exit(1)
+if 'evil' in d and not isinstance(d.get('evil'), str):
+    sys.exit(2)
+" 2>/dev/null; then
+  echo "FAIL: hostile tool output broke JSON envelope structure" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
 rm -f "$json_out"
 rm -rf "$hostile_repo"
+
+# ── Test 10: Shell metacharacters blocked at --brand boundary ───────────────
+echo "Test 10: Shell metacharacters blocked at --brand boundary"
+assert_exit "--brand pipe rejected" 1 bash "$CANONICAL_SCRIPT" --brand 'evil|id'
 
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"

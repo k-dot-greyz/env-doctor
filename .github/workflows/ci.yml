@@ -2,14 +2,22 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    name: Shellcheck & Test Suite
+  lint-and-test:
+    name: Shellcheck & Bash Tests (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -18,16 +26,86 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Shellcheck (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y shellcheck
+      - name: Install shellcheck (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
 
-      - name: Install Shellcheck (macOS)
-        if: matrix.os == 'macos-latest'
+      - name: Install shellcheck (macOS)
+        if: runner.os == 'macOS'
         run: brew install shellcheck
 
-      - name: Run Shellcheck
-        run: shellcheck env-doctor.sh release.sh
+      - name: Run lint (shellcheck)
+        run: make lint
 
-      - name: Run Test Suite
-        run: bash tests/run.sh
+      - name: Run smoke checks
+        run: make smoke
+
+      - name: Run bash test suite
+        run: make test
+
+      - name: Run release build check
+        run: make release
+
+  # Mirrors templates/github-actions-env-doctor.yml — dogfood the published integration pattern.
+  env-doctor:
+    name: env-doctor self-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run env-doctor
+        run: |
+          bash env-doctor.sh --json --quiet > env-doctor-report.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("env-doctor-report.json").read_text())
+          print(json.dumps(report, indent=2))
+
+          if not report.get("ok", False):
+              failures = [r for r in report.get("results", []) if r.get("type") == "fail"]
+              print("env-doctor failures:")
+              for failure in failures:
+                  print(f"- {failure.get('key')}: {failure.get('value')}")
+              raise SystemExit(1)
+          PY
+
+      - name: Upload env-doctor report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: env-doctor-report-${{ github.run_id }}
+          path: env-doctor-report.json
+
+  playwright:
+    name: Playwright UX & security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright specs
+        run: npm run test:pw
+
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results-${{ github.run_id }}
+          path: test-results/

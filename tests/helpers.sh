@@ -133,7 +133,7 @@ assert_file_present() {
   fi
 }
 
-# Stub gh CLI for auth-blocker tests (mode: ok|invalid|unauth|missing-repo|missing-ssh).
+# Stub gh CLI for auth-blocker tests (mode: ok|invalid|unauth|missing-repo|missing-ssh|quoted-ok).
 make_gh_stub() {
   local bin_dir="$1"
   local mode="${2:-${HARNESS_GH_MODE:-ok}}"
@@ -147,15 +147,19 @@ case "\$1:\$2" in
       unauth) echo "You are not logged into any GitHub hosts"; exit 1 ;;
       missing-repo)
         echo "Logged in to github.com"
-        echo "Token scopes: gist, read:org"
+        echo "Token scopes: 'gist', 'read:org'"
         exit 0 ;;
       missing-ssh)
         echo "Logged in to github.com"
-        echo "Token scopes: repo"
+        echo "Token scopes: 'repo'"
+        exit 0 ;;
+      quoted-ok)
+        echo "Logged in to github.com"
+        echo "Token scopes: 'repo', 'admin:public_key', 'gist'"
         exit 0 ;;
       *)
         echo "Logged in to github.com"
-        echo "Token scopes: repo, admin:public_key"
+        echo "Token scopes: 'repo', 'admin:public_key'"
         exit 0 ;;
     esac
     ;;
@@ -183,6 +187,7 @@ run_doctor() {
   shift
   local global_cfg="${HARNESS_GIT_CONFIG_GLOBAL:-}"
   local cleanup_cfg=false
+  local rc=0
   if [[ -z "$global_cfg" ]]; then
     global_cfg="$(mktemp)"
     : >"$global_cfg"
@@ -192,8 +197,41 @@ run_doctor() {
     cd "$repo"
     GIT_CONFIG_GLOBAL="$global_cfg" GIT_CONFIG_SYSTEM=/dev/null \
       bash ./env-doctor.sh "$@"
-  )
+  ) || rc=$?
   if [[ "$cleanup_cfg" == true ]]; then
     rm -f "$global_cfg"
   fi
+  return "$rc"
+}
+
+# Stub python3.14 on PATH for tests that require the 3.14+ floor on hosts without it.
+# Reports 3.14.0 for --version only; all other invocations delegate to host python3.
+# Do NOT use this stub to validate Python 3.14-specific semantics.
+_setup_test_python314() {
+  local stub_dir
+  stub_dir="$(mktemp -d "${TMPDIR:-/tmp}/env-doctor-py314-stub-XXXXXX")"
+  export ENV_DOCTOR_PY314_STUB_DIR="$stub_dir"
+  trap '[[ -n "${ENV_DOCTOR_PY314_STUB_DIR:-}" ]] && rm -rf "$ENV_DOCTOR_PY314_STUB_DIR"' EXIT
+  cat >"$stub_dir/python3.14" <<'STUB'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  echo "Python 3.14.0"
+  exit 0
+fi
+if [[ "${1:-}" == "-m" && "${2:-}" == "venv" ]]; then
+  rm -rf "${@:3}" 2>/dev/null || true
+  if python3 -m venv "${@:3}" 2>/dev/null; then
+    exit 0
+  fi
+  rm -rf "${@:3}" 2>/dev/null || true
+  if command -v virtualenv &>/dev/null; then
+    virtualenv "${@:3}" --quiet 2>/dev/null
+    exit $?
+  fi
+  exit 1
+fi
+exec python3 "$@"
+STUB
+  chmod +x "$stub_dir/python3.14"
+  export PATH="$stub_dir:${PATH}"
 }

@@ -18,7 +18,7 @@ This document describes the design and flow of `env-doctor`, structured around t
 | **2** | Tooling Discovery: Project-type detection (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`); required/recommended tool checks; Python venv + optional `ENV_DOCTOR_PYTHON_DEPS` imports. |
 | **3** | Git & Submodule Discovery: Branch, remote, dirty tree; submodule status loop (core vs other classification); private URL list + SSH check; orphan gitlink check vs `.gitmodules`. |
 | **4** | Credentials & Config: `.env` vs `env.example`, `gh auth`, Docker daemon, Cursor MCP placeholder scan. |
-| **5** | Progressive Init (`--init` only): Tiered progressive environment setup (Python venv, core submodules, all submodules, Docker compose). |
+| **5** | Progressive Init (`--init` only): Tiered setup — venv, submodules, native tools, PATH/profile/boot hooks, Docker Compose. See [`STATUS.md`](STATUS.md). |
 
 ## 3. Exit Codes (Predictable Failure)
 
@@ -53,9 +53,13 @@ When run with `--json` / `-j`, the tool emits a single JSON object conforming to
 
 ## 5. Extension Points (Dynamic Configuration)
 
-- **Core repo regex**: `ENV_DOCTOR_CORE_REPOS` (no hardcoded names in the script).
-- **Python imports**: `ENV_DOCTOR_PYTHON_DEPS` (comma-separated).
-- **Help URL**: `ENV_DOCTOR_HELP_URL` for private-repo credential hints.
+- **Core repo regex**: `ENV_DOCTOR_CORE_REPOS`
+- **Python imports**: `ENV_DOCTOR_PYTHON_DEPS`
+- **Help URL**: `ENV_DOCTOR_HELP_URL`
+- **Python floor**: `ENV_DOCTOR_MIN_PYTHON_MINOR` (default 14)
+- **Tier 3 persistence**: `ENV_DOCTOR_PERSIST_PATH`, `ENV_DOCTOR_BOOT_AUDIT`, `ENV_DOCTOR_REPO`
+
+Hydration helpers (in `env-doctor.sh`): `_apt_install`, `_ensure_python314_ubuntu`, `_hydrate_path_session`, `_hydrate_path_persistent`, `_hydrate_boot_audit`. External installer: `scripts/env-config.sh`.
 
 ## 6. Error Handling & Traps
 

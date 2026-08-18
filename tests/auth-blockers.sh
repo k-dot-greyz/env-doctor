@@ -99,8 +99,43 @@ assert_file_not_contains "no blocker when auth is clean" "$text_out" "blocker:"
 rm -f "$text_out"
 rm -rf "$clean_repo"
 
-# ── Test 8: JSON mode must not leak blocker footer to stdout ─────────────────
-echo "Test 8: JSON output stays machine-parseable (no human blocker footer)"
+# ── Test 8: quoted gh scopes (real gh auth status format) ───────────────────
+echo "Test 8: quoted gh token scopes accepted"
+quoted_repo="$(make_fixture_repo gh-quoted bash -c "
+  mkdir -p bin
+  git remote add origin 'git@github.com:example/acme.git'
+")"
+make_gh_stub "${quoted_repo}/bin" quoted-ok
+text_out="$(mktemp)"
+PATH="${quoted_repo}/bin:${PATH}" run_doctor "$quoted_repo" >"$text_out" 2>&1 || true
+assert_file_contains "quoted scopes authenticate" "$text_out" "authenticated"
+assert_file_not_contains "quoted scopes do not false-positive blocker" "$text_out" "blocker:"
+rm -f "$text_out"
+rm -rf "$quoted_repo"
+
+# ── Test 9: legitimate HTTPS→SSH insteadOf rewrite is not poison ────────────
+echo "Test 9: legitimate git url rewrite not flagged as poison"
+legit_repo="$(make_fixture_repo legit-insteadof bash -c "
+  mkdir -p bin
+  git remote add origin 'git@github.com:example/acme.git'
+")"
+make_gh_stub "${legit_repo}/bin" ok
+global_cfg="$(mktemp)"
+cat >"$global_cfg" <<EOF
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+EOF
+HARNESS_GIT_CONFIG_GLOBAL="$global_cfg"
+text_out="$(mktemp)"
+PATH="${legit_repo}/bin:${PATH}" run_doctor "$legit_repo" >"$text_out" 2>&1 || true
+unset HARNESS_GIT_CONFIG_GLOBAL
+assert_file_not_contains "legitimate insteadOf not poison" "$text_out" "HTTPS override poison"
+assert_file_not_contains "legitimate insteadOf no blocker" "$text_out" "blocker:"
+rm -f "$text_out" "$global_cfg"
+rm -rf "$legit_repo"
+
+# ── Test 10: JSON mode must not leak blocker footer to stdout ────────────────
+echo "Test 10: JSON output stays machine-parseable (no human blocker footer)"
 json_repo="$(make_fixture_repo json-auth bash -c "
   git remote add origin '${HARNESS_GITHUB_HTTPS_REMOTE}'
 ")"

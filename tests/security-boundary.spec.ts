@@ -8,6 +8,8 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { runDoctorOutput, runDoctorScript } from "./pw-helpers";
+
 const repoRoot = join(__dirname, "..");
 const canonicalScript = join(repoRoot, "env-doctor.sh");
 const fixturePrefix = process.env.HARNESS_FIXTURE_PREFIX ?? "env-doctor-sec";
@@ -16,10 +18,7 @@ const gitUserName = process.env.HARNESS_GIT_USER_NAME ?? "sec-test";
 const gitUserEmail = process.env.HARNESS_GIT_USER_EMAIL ?? "sec@users.noreply.github.com";
 
 function runDoctorIn(cwd: string, args: string[]) {
-  return execFileSync("bash", [join(cwd, "env-doctor.sh"), ...args], {
-    cwd,
-    encoding: "utf8",
-  });
+  return runDoctorOutput(join(cwd, "env-doctor.sh"), args, cwd);
 }
 
 function fixtureWithConf(conf: string, extra?: (dir: string) => void): string {
@@ -73,6 +72,7 @@ test("flags mock credentials in .env (agent must not treat as production-ready)"
   writeFileSync(join(dir, "env.example"), "API_KEY=\n");
   execFileSync("git", ["init", "-q"], { cwd: dir });
   execFileSync("git", ["config", "user.email", gitUserEmail], { cwd: dir });
+  execFileSync("git", ["config", "user.name", gitUserName], { cwd: dir });
   execFileSync("git", ["add", "-A"], { cwd: dir });
   execFileSync("git", ["commit", "-q", "-m", "env"], { cwd: dir });
   try {
@@ -86,7 +86,8 @@ test("flags mock credentials in .env (agent must not treat as production-ready)"
 test("rejects --brand argv injection", () => {
   const dir = fixtureWithConf("");
   try {
-    expect(() => runDoctorIn(dir, ["--brand", "evil;rm"])).toThrow();
+    const { status } = runDoctorScript(join(dir, "env-doctor.sh"), ["--brand", "evil;rm"], dir);
+    expect(status).not.toBe(0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

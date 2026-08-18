@@ -15,6 +15,8 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { runDoctorOutput } from "./pw-helpers";
+
 const repoRoot = join(__dirname, "..");
 const canonicalScript = join(repoRoot, "env-doctor.sh");
 const fixturePrefix = process.env.HARNESS_FIXTURE_PREFIX ?? "env-doctor-pw";
@@ -25,12 +27,7 @@ const githubHttpsRemote =
 const nextCmd = process.env.HARNESS_NEXT_CMD ?? "dinit auth";
 
 function runDoctor(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
-  const script = join(cwd, "env-doctor.sh");
-  return execFileSync("bash", [script, ...args], {
-    cwd,
-    encoding: "utf8",
-    env: { ...process.env, ...env },
-  });
+  return runDoctorOutput(join(cwd, "env-doctor.sh"), args, cwd, env);
 }
 
 function seedRepo(name: string, setup: (dir: string) => void): string {

@@ -8,6 +8,8 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { doctorProcessEnv } from "./pw-helpers";
+
 const repoRoot = join(__dirname, "..");
 const canonicalScript = join(repoRoot, "env-doctor.sh");
 const fixturePrefix = process.env.HARNESS_FIXTURE_PREFIX ?? "env-doctor-sec";
@@ -19,6 +21,7 @@ function runDoctorIn(cwd: string, args: string[]) {
   return execFileSync("bash", [join(cwd, "env-doctor.sh"), ...args], {
     cwd,
     encoding: "utf8",
+    env: doctorProcessEnv(),
   });
 }
 

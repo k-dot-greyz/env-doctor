@@ -1250,23 +1250,34 @@ _check_tool() {
   fi
 }
 
+# Returns 0 when $1 is strictly newer than $2 (semver-ish x.y.z).
+_python_version_newer() {
+  [[ -n "$2" ]] && [[ "$1" != "$2" ]] && [[ "$(printf '%s\n' "$1" "$2" | sort -V | tail -1)" == "$1" ]]
+}
+
 _check_python() {
-  local best="" best_ver="" py ver min_minor py_hint
+  local best="" best_ver="" pass_py="" pass_ver="" py ver min_minor py_hint
   min_minor="${ENV_DOCTOR_MIN_PYTHON_MINOR:-14}"
-  for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+  for py in python3.15 python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
     if command -v "$py" &>/dev/null; then
       ver="$($py --version 2>&1 | awk '{print $2}')"
-      if [[ -z "$best" ]]; then
+      if _python_version_meets_minimum "$ver"; then
+        if [[ -z "$pass_py" ]] || _python_version_newer "$ver" "$pass_ver"; then
+          pass_py="$py"
+          pass_ver="$ver"
+        fi
+      fi
+      if [[ -z "$best" ]] || _python_version_newer "$ver" "$best_ver"; then
         best="$py"
         best_ver="$ver"
       fi
-      if _python_version_meets_minimum "$ver"; then
-        _pass "python ($py)" "$ver"
-        BEST_PYTHON="$py"
-        return
-      fi
     fi
   done
+  if [[ -n "$pass_py" ]]; then
+    _pass "python ($pass_py)" "$pass_ver"
+    BEST_PYTHON="$pass_py"
+    return
+  fi
   if [[ -n "$best" ]]; then
     py_hint="3.${min_minor}+ required"
     [[ -f "$REPO_ROOT/pyproject.toml" ]] && py_hint="3.${min_minor}+ required (see pyproject.toml)"

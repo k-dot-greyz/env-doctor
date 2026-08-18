@@ -14,6 +14,8 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { doctorProcessEnv } from "./pw-helpers";
+
 const repoRoot = join(__dirname, "..");
 const canonicalScript = join(repoRoot, "env-doctor.sh");
 const fixturePrefix = process.env.HARNESS_FIXTURE_PREFIX ?? "env-doctor-pw";
@@ -25,7 +27,7 @@ function runDoctor(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) {
   return execFileSync("bash", [script, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: doctorProcessEnv(env),
   });
 }
 

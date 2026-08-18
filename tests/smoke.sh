@@ -396,6 +396,127 @@ fi
 rm -f "$text_out"
 rm -rf "$broken_venv_repo"
 
+# ── Bug: _check_python min — installed Python meeting minimum should PASS ─────
+# Regression for: fallback selection picked the lowest available Python because
+# loop order was used instead of comparing reported versions.
+if command -v python3 &>/dev/null; then
+  current_py_ver="$(python3 --version 2>&1 | awk '{print $2}')"
+  current_py_minor="$(echo "$current_py_ver" | cut -d. -f2)"
+  pin_repo="$(make_fixture_repo py-min-pass bash -c 'echo "[project]" > pyproject.toml')"
+  json_out="$(mktemp)"
+  ENV_DOCTOR_MIN_PYTHON_MINOR="$current_py_minor" run_doctor "$pin_repo" --json -q >"$json_out" 2>/dev/null || true
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if ! python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if row.get('type') == 'pass' and 'python' in row.get('key',''):
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+    echo "FAIL: python meeting ENV_DOCTOR_MIN_PYTHON_MINOR should emit a [PASS]" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -f "$json_out"
+  rm -rf "$pin_repo"
+fi
+
+# ── Bug: _check_python must pick highest version, not first loop match ────────
+# When python3 reports a newer version than an earlier versioned binary (e.g.
+# python3=3.15 while python3.12 exists but python3.15 is not in the candidate
+# list), BEST_PYTHON must follow the reported version, not loop order.
+py_best_repo="$(make_fixture_repo py-best-version bash -c 'echo "[project]" > pyproject.toml')"
+py_stub_dir="$(mktemp -d)"
+mkdir -p "$py_stub_dir/bin"
+cat >"$py_stub_dir/bin/python3.12" <<'PYSTUB'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--version" ]] && { echo "Python 3.12.0"; exit 0; }
+exit 1
+PYSTUB
+cat >"$py_stub_dir/bin/python3" <<'PYSTUB'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--version" ]] && { echo "Python 3.15.0"; exit 0; }
+exit 1
+PYSTUB
+chmod +x "$py_stub_dir/bin/"*
+json_out="$(mktemp)"
+PATH="$py_stub_dir/bin:/usr/bin:/bin" ENV_DOCTOR_MIN_PYTHON_MINOR=14 run_doctor "$py_best_repo" --json -q >"$json_out" 2>/dev/null || true
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if 'python' in row.get('key','') and '3.15' in row.get('value',''):
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+  echo "FAIL: _check_python should pick python3 (3.15) over python3.12 when newer" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$json_out"
+rm -rf "$py_best_repo" "$py_stub_dir"
+
+# ── Bug: _check_github_git_urls — IFS= broke key/val split (false positive) ──
+# SSH-forcing override url.git@github.com:.insteadOf https://github.com/ is a
+# common legitimate config.  With IFS=, the whole line ended up in $key and
+# "https://github.com" (from the value) triggered a false "poison" warning.
+# After the fix, no warning should appear for this config.
+git_urls_repo="$(make_fixture_repo git-url-no-fp bash -c 'true')"
+tmp_global_cfg="$(mktemp)"
+cat >"$tmp_global_cfg" <<'GITCFG'
+[user]
+	name = Test
+	email = test@example.com
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+GITCFG
+json_out="$(mktemp)"
+GIT_CONFIG_GLOBAL="$tmp_global_cfg" run_doctor "$git_urls_repo" --json -q >"$json_out" 2>/dev/null || true
+TESTS_RUN=$((TESTS_RUN + 1))
+if python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if 'poison' in row.get('value','').lower():
+        sys.exit(1)
+" 2>/dev/null; then
+  : # no poison warning — expected
+else
+  echo "FAIL: SSH-forcing git url override should NOT trigger 'HTTPS override poison' warning" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$json_out" "$tmp_global_cfg"
+rm -rf "$git_urls_repo"
+
+# Real HTTPS-forcing override (genuine poison) MUST warn.
+git_urls_poison_repo="$(make_fixture_repo git-url-poison bash -c 'true')"
+tmp_poison_cfg="$(mktemp)"
+cat >"$tmp_poison_cfg" <<'GITCFG'
+[user]
+	name = Test
+	email = test@example.com
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+GITCFG
+json_out="$(mktemp)"
+GIT_CONFIG_GLOBAL="$tmp_poison_cfg" run_doctor "$git_urls_poison_repo" --json -q >"$json_out" 2>/dev/null || true
+TESTS_RUN=$((TESTS_RUN + 1))
+if python3 -c "
+import json, sys
+d = json.load(open('$json_out'))
+for row in d.get('results', []):
+    if 'poison' in row.get('value','').lower():
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null; then
+  : # poison warning found — expected
+else
+  echo "FAIL: HTTPS-forcing git url override should trigger 'HTTPS override poison' warning" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$json_out" "$tmp_poison_cfg"
+rm -rf "$git_urls_poison_repo"
+
 echo ""
 echo "Ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
 [[ "$TESTS_FAILED" -eq 0 ]]

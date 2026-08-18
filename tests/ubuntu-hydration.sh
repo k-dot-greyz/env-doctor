@@ -145,6 +145,64 @@ fi
 rm -f "$text_out"
 rm -rf "$rg_repo"
 
+
+# ── Bug #53 regression: ENV_DOCTOR_REPO metachar blocked by runtime guard ────
+metachar_repo="$(make_fixture_repo metachar-inject bash -c '
+  echo "ENV_DOCTOR_PERSIST_PATH=true" > .env-doctor.conf
+  echo "# no deps" > requirements.txt
+')"
+mkdir -p "$metachar_repo/.venv/bin"
+printf '%s\n' '# stub' >"$metachar_repo/.venv/bin/activate"
+fake_home_mc="$(mktemp -d)"
+touch "$fake_home_mc/.bashrc"
+text_out_mc="$(mktemp)"
+set +e
+# ENV_DOCTOR_REPO passed as env var — bypasses _load_config; runtime guard must catch it
+ENV_DOCTOR_REPO='/tmp/$(touch /tmp/ED53_RUNTIME_INJECTED)' \
+  HOME="$fake_home_mc" PKG_MANAGER=pip \
+  run_doctor "$metachar_repo" -it3y >"$text_out_mc" 2>&1
+set -e
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -qi "unsafe characters" "$text_out_mc"; then
+  echo "FAIL: metachar in ENV_DOCTOR_REPO (env var) should emit 'unsafe characters' warning" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if [[ -f /tmp/ED53_RUNTIME_INJECTED ]]; then
+  echo "FAIL: ENV_DOCTOR_REPO shell injection was not blocked by runtime guard (file created)" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q '\$(touch' "$fake_home_mc/.bashrc" 2>/dev/null; then
+  echo "FAIL: runtime injection payload written to bashrc" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out_mc" /tmp/ED53_RUNTIME_INJECTED
+rm -rf "$metachar_repo" "$fake_home_mc"
+
+# ── Bug #53 regression: env-config.sh rejects metachar ENV_DOCTOR_REPO ───────
+if [[ -x "$REPO_ROOT/scripts/env-config.sh" ]]; then
+  fake_home_cfgmc="$(mktemp -d)"
+  touch "$fake_home_cfgmc/.bashrc"
+  cfgmc_exit=0
+  set +e
+  ENV_DOCTOR_REPO='/tmp/$(touch /tmp/ED53_CFGSCRIPT_INJECTED)' HOME="$fake_home_cfgmc" \
+    bash "$REPO_ROOT/scripts/env-config.sh" install >/dev/null 2>&1
+  cfgmc_exit=$?
+  set -e
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [[ "$cfgmc_exit" -eq 0 ]]; then
+    echo "FAIL: env-config.sh with metachar ENV_DOCTOR_REPO should exit non-zero" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [[ -f /tmp/ED53_CFGSCRIPT_INJECTED ]]; then
+    echo "FAIL: env-config.sh metachar injection was not blocked (file created)" >&2
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+  fi
+  rm -rf "$fake_home_cfgmc" /tmp/ED53_CFGSCRIPT_INJECTED
+fi
+
 echo ""
 echo "ubuntu-hydration: ran $TESTS_RUN assertions; failures: $TESTS_FAILED"
 [[ "$TESTS_FAILED" -eq 0 ]]

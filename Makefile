@@ -17,6 +17,9 @@ smoke:
 test:
 	bash tests/run.sh
 
+test-pw:
+	npx playwright test
+
 lint:
 	shellcheck env-doctor.sh release.sh scripts/*.sh tests/*.sh
 

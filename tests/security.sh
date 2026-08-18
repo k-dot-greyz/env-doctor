@@ -152,6 +152,10 @@ tmp_gitcfg="$(mktemp)"
 git config --file "$tmp_gitcfg" 'url.git@github.com:.insteadOf' 'https://github.com/'
 out_51="$(GIT_CONFIG_GLOBAL="$tmp_gitcfg" bash ./env-doctor.sh --json 2>&1 || true)"
 _assert_not_contains "SSH-forcing insteadOf no false poison warn" "poison" "$out_51"
+# Positive case: SSH→HTTPS poison must still warn
+git config --file "$tmp_gitcfg" 'url.https://github.com/.insteadOf' 'git@github.com:'
+out_51b="$(GIT_CONFIG_GLOBAL="$tmp_gitcfg" bash ./env-doctor.sh --json 2>&1 || true)"
+_assert_contains "SSH→HTTPS poison still detected" "poison" "$out_51b"
 rm -f "$tmp_gitcfg"
 
 # ── Test 8: Bug 57 — _check_python selects highest available Python (not lowest) ──

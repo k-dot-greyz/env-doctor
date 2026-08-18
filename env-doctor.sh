@@ -980,10 +980,13 @@ _check_github_git_urls() {
     _pass "git remote" "origin configured"
   fi
 
+  # insteadOf lines are "key value"; default IFS splits on whitespace (never IFS=).
+  # Poison pattern: rewrite SSH → HTTPS (key contains https base, val is git@github.com:…).
+  # Legitimate SSH-forcing is the inverse (git@ key, https val) and must not warn.
   local key val
-  while read -r key val; do
+  while read -r key val _; do
     [[ -z "$key" ]] && continue
-    if [[ "$key" == *"https://github.com"* ]] || [[ "$val" == "git@github.com:" ]]; then
+    if [[ "$key" == *"https://github.com"* ]] && [[ "$val" == git@github.com:* ]]; then
       _warn "git config" "HTTPS override poison detected ($key)"
       _suggest_dinit_auth
     fi

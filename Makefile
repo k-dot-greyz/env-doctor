@@ -1,10 +1,11 @@
-.PHONY: help smoke test lint ci release setup hydrate-dry
+.PHONY: help smoke test lint ci release test-pw setup hydrate-dry
 
 help:
 	@printf '%s\n' "env-doctor targets:" \
 	  "  make smoke       - run fast CLI smoke checks" \
 	  "  make lint        - run shellcheck" \
 	  "  make test        - run the Bash test suite" \
+	  "  make test-pw     - run Playwright UX/security specs (requires npm install)" \
 	  "  make ci          - run lint + test" \
 	  "  make setup       - full tier 3 hydration (--init --tier 3 --yes)" \
 	  "  make hydrate-dry - preview tier 3 hydration (dry-run)" \
@@ -18,7 +19,7 @@ test:
 	bash tests/run.sh
 
 test-pw:
-	npx playwright test
+	npm run test:pw
 
 lint:
 	shellcheck env-doctor.sh release.sh scripts/*.sh tests/*.sh

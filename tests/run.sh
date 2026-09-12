@@ -8,4 +8,5 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 bash "$SCRIPT_DIR/smoke.sh"
 bash "$SCRIPT_DIR/security.sh"
+bash "$SCRIPT_DIR/auth-blockers.sh"
 bash "$SCRIPT_DIR/ubuntu-hydration.sh"

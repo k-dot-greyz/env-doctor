@@ -50,3 +50,9 @@ Remediation flow:
 * Prefer `--json -q` for automated decisions.
 * Re-run the failing command only after the environment diagnosis is clean or the issue is understood.
 * When writing tests that invoke `env-doctor.sh`, isolate `GIT_CONFIG_GLOBAL` and stub `gh` — never rely on the host user's git credentials.
+
+## Learned Workspace Facts
+
+* Bash tests: use `run_doctor` from `tests/helpers.sh` — it preserves subshell exit codes and isolates `GIT_CONFIG_GLOBAL`.
+* Playwright tests: use `tests/playwright-harness.ts` (same git isolation pattern as the bash harness).
+* Auth blocker implementation: strip single quotes when parsing `gh auth status` scopes; flag only `url.https://github.com*` insteadOf keys as poison (not legitimate HTTPS→SSH rewrites).

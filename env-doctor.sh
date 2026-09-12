@@ -1496,7 +1496,9 @@ _check_github_git_urls() {
   local key val
   while read -r key val; do
     [[ -z "$key" ]] && continue
-    if [[ "$key" == *"https://github.com"* ]] || [[ "$val" == "git@github.com:" ]]; then
+    # Poison rewrites SSH → HTTPS (url.https://github.com/.insteadof git@github.com:).
+    # Legitimate HTTPS → SSH rewrite uses url.git@github.com:.insteadof — must not match.
+    if [[ "$key" == url.https://github.com* ]]; then
       _warn "git config" "HTTPS override poison detected ($key)"
       _suggest_dinit_auth
     fi
@@ -1844,10 +1846,8 @@ summary() {
 
   if [[ "$DO_INIT" == false ]] && [[ "$QUIET" == false ]]; then
     if [[ -n "$ENV_DOCTOR_NEXT_CMD" ]]; then
-      # shellcheck disable=SC2059
-      printf "\n${Y}  blocker:${RST} GitHub auth / git URLs need fixing\n"
-      # shellcheck disable=SC2059
-      printf "${DIM}  next: %s${RST}\n\n" "$ENV_DOCTOR_NEXT_CMD"
+      printf '\n%s  blocker:%s GitHub auth / git URLs need fixing\n' "${Y}" "${RST}"
+      printf '%s  next: %s%s\n\n' "${DIM}" "$ENV_DOCTOR_NEXT_CMD" "${RST}"
     else
       printf "\n${DIM}  To fix issues, run: %s --init${RST}\n" "$DOCTOR_NAME"
       printf "${DIM}  For full setup:     %s --init --tier 2${RST}\n\n" "$DOCTOR_NAME"

@@ -768,9 +768,9 @@ _check_python() {
     if command -v "$py" &>/dev/null; then
       local ver
       ver="$($py --version 2>&1 | awk '{print $2}')"
-      local major minor
-      major="$(echo "$ver" | cut -d. -f1)"
-      minor="$(echo "$ver" | cut -d. -f2)"
+      # Capture the first (highest-versioned) Python found; do not overwrite on
+      # later iterations — the loop already iterates highest-to-lowest, so the
+      # first hit is the best available.
       if [[ -z "$best" ]]; then
         best="$py"; best_ver="$ver"
       fi
@@ -778,9 +778,6 @@ _check_python() {
         _pass "python ($py)" "$ver (pinned $pin)"
         BEST_PYTHON="$py"
         return
-      fi
-      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 10 ]]; then
-        best="$py"; best_ver="$ver"
       fi
     fi
   done
@@ -983,10 +980,13 @@ _check_github_git_urls() {
     _pass "git remote" "origin configured"
   fi
 
+  # insteadOf lines are "key value"; default IFS splits on whitespace (never IFS=).
+  # Poison pattern: rewrite SSH → HTTPS (key contains https base, val is git@github.com:…).
+  # Legitimate SSH-forcing is the inverse (git@ key, https val) and must not warn.
   local key val
-  while IFS= read -r key val; do
+  while read -r key val _; do
     [[ -z "$key" ]] && continue
-    if [[ "$key" == *"https://github.com"* ]] || [[ "$val" == "git@github.com:" ]]; then
+    if [[ "$key" == *"https://github.com"* ]] && [[ "$val" == git@github.com:* ]]; then
       _warn "git config" "HTTPS override poison detected ($key)"
       _suggest_dinit_auth
     fi

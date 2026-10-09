@@ -104,6 +104,8 @@ report_id = "zc_" + base32url( SHA-256( canonical_json( identity_core ) ) )[0:22
 
 Repeated capture with the same core facts **updates** `revision` and merges new vectors; it does not fork a new id.
 
+**Pseudonymity:** Optional `--anonymous` salts `identity_core` so repeat captures do not merge and `report_id` does not fingerprint the same repo/issue on a public forum. See [TRUST_TOUCHPOINTS.md](TRUST_TOUCHPOINTS.md) §4.3.
+
 ### 5.2 Single source of truth
 
 The **JSON card** is authoritative. The PNG is a **rendered view**. Forum markdown is a **projection**. Embedded PNG metadata chunk (WIP) is a convenience transport, not a second schema.
@@ -162,7 +164,7 @@ Treat host IDE state, log tails, and screenshots as **sensitive**. Apply redacti
 | Full chat content | Never in v0; Request ID only |
 | Screenshots | May contain secrets — user warning on first use; optional blur regions (future) |
 
-See ARCHITECTURE §6 for trust boundaries.
+See ARCHITECTURE §6 and [TRUST_TOUCHPOINTS.md](TRUST_TOUCHPOINTS.md) for trust boundaries, consent touchpoints, and ship gates.
 
 ---
 

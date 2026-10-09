@@ -17,6 +17,7 @@
 | 0.3 | Copy/link `zenclip-bugcard-1.schema.json` into `zenclip/schemas/` | [ ] | Single source: agents_ram copy until package split |
 | 0.4 | Add `zenclip --help` and version stub | [ ] | `ZENCLIP_VERSION=0.1.0` |
 | 0.5 | Document privacy warning in `zenclip/README.md` | [ ] | Screenshots may contain secrets |
+| 0.6 | First-run consent + `~/.zenclip` `0700` store policy | [ ] | TRUST_TOUCHPOINTS §4.1–4.2 |
 
 **Exit criteria:** Empty CLI runs; schema validates against fixture `{}` with documented required fields.
 
@@ -35,6 +36,8 @@
 | 1.7 | Emit `exports/forum_post.md` from `templates/forum_cursor.md.tmpl` | [ ] | Maps forum bot template fields |
 | 1.8 | Tests: `tests/zenclip/compile-idempotency.sh` | [ ] | Use `tests/helpers.sh` pattern |
 | 1.9 | Tests: `tests/zenclip/redact-secrets.sh` | [ ] | Hostile URL fixtures |
+| 1.10 | env-doctor snapshot **off by default**; projection allowlist if enabled | [ ] | TRUST_TOUCHPOINTS §4.6 |
+| 1.11 | Forum template footer: "Before you post" | [ ] | TRUST_TOUCHPOINTS §7 |
 
 **Exit criteria:** `zenclip compile --fixture tests/zenclip/fixtures/labels-ui.bundle.json` produces stable `report_id` across two runs.
 
@@ -67,6 +70,9 @@
 | 3.4 | Store layout under `~/.zenclip/reports/<report_id>/` | [ ] | ARCHITECTURE §4.3 |
 | 3.5 | Clipboard export (Linux: `wl-copy` / `xclip` detection) | [ ] | Best-effort |
 | 3.6 | **ADR-003:** PNG `tEXt` embed minimal card | [ ] | Optional; skip if >64KB |
+| 3.7 | Clipboard: forum markdown only (paths in toast) | [ ] | TRUST_TOUCHPOINTS §4.4 |
+| 3.8 | Delete transient bundle by default; `--keep-bundle` | [ ] | TRUST_TOUCHPOINTS §4.2 |
+| 3.9 | Implement ship gates G1–G6 in TRUST_TOUCHPOINTS §5 | [ ] | Block release until pass |
 
 **Exit criteria:** `zenclip snap --class github.labels_ui` on dev machine produces card + forum md in &lt;5s (P1 best-effort).
 
@@ -103,7 +109,7 @@
 
 | ID | Task | Done | Notes |
 |----|------|------|-------|
-| 6.1 | Threat model doc `zenclip/docs/THREAT_MODEL.md` | [ ] | Mirror env-doctor style |
+| 6.1 | Promote TRUST_TOUCHPOINTS → `zenclip/docs/THREAT_MODEL.md` at code ship | [ ] | Extend with code-specific vectors |
 | 6.2 | CI job: run `tests/zenclip/*.sh` | [ ] | Add to `.github/workflows/ci.yml` |
 | 6.3 | Link from `docs/FOLLOW_UPS.md` or `docs/README.md` | [ ] | agents_ram pointer |
 | 6.4 | CHANGELOG entry when `zenclip/` CLI ships | [ ] | |

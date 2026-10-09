@@ -9,6 +9,7 @@
 | [WHITEPAPER.md](WHITEPAPER.md) | Problem, goals, 80/20 capture ladder, idempotency, multimodal infograph |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components, hydration vectors, schemas, threat boundaries, repo scaffold |
 | [tasks.md](tasks.md) | Statement of work — phased implementation checklist |
+| [TRUST_TOUCHPOINTS.md](TRUST_TOUCHPOINTS.md) | Trust touchpoint audit (consent, egress, gates) |
 | [schemas/zenclip-bugcard-1.schema.json](schemas/zenclip-bugcard-1.schema.json) | Draft JSON Schema for the bug card companion |
 | [examples/sample-bugcard.json](examples/sample-bugcard.json) | Illustrative card (not a live capture) |
 

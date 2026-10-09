@@ -41,6 +41,12 @@ Tracked as GitHub issues tagged **`hydration-follow-up`** in the issue body (lab
 5. **#11** CI matrix (validates #8/#9)
 6. **#13** shell portability polish
 
+## Agent RAM (local blueprints)
+
+Initiative specs that are not yet product code live under [`agents_ram/`](../agents_ram/README.md). Current track:
+
+- **zenClip bug forensics** — idempotent bug card + infograph; SOW in [`agents_ram/zenclip-bug-forensics/tasks.md`](../agents_ram/zenclip-bug-forensics/tasks.md).
+
 ## Search on GitHub
 
 ```text

@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Ubuntu/Debian/Mint tier 2–3 hydration: apt installs, Python 3.14 floor, session/persistent PATH, boot audit hooks.
+- Default happy path `rust-astro-vite` (`ENV_DOCTOR_HAPPY_PATH=auto`). Cold repos and Rust/Astro repos audit rustc, rustfmt, clippy, rust-analyzer, rust-src, cargo-nextest, cargo-watch, and Node 22. `--init --tier 0 --yes` applies that boot. Astro is not installed. Python-only repos are unchanged.
+- Audit loops that used process substitution now read into a variable first, so a missing git config does not abort the run.
+
 - `scripts/env-config.sh`, profile/systemd templates, `--print-profile-template`.
 - `tests/ubuntu-hydration.sh`, `make setup`, `make hydrate-dry`.
 - `docs/STATUS.md` and `docs/FOLLOW_UPS.md` — capability matrix and issue backlog.

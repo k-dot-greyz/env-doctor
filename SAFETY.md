@@ -25,7 +25,7 @@ Env Doctor scans your `.env` files and Git configurations to ensure they are set
 
 To prevent arbitrary code execution, Env Doctor does not source `.env-doctor.conf` directly by default. Instead, it uses a custom, injection-proof key-value parser (`_load_config`):
 
-- **Allowlisted Keys**: Only parses explicitly allowed keys (`BRAND`, `ENV_DOCTOR_CORE_REPOS`, `ENV_DOCTOR_PYTHON_DEPS`, `ENV_DOCTOR_HELP_URL`, `ENV_DOCTOR_MIN_PYTHON_MINOR`, `ENV_DOCTOR_PERSIST_PATH`, `ENV_DOCTOR_BOOT_AUDIT`, `ENV_DOCTOR_REPO`).
+- **Allowlisted Keys**: Only parses explicitly allowed keys (`BRAND`, `ENV_DOCTOR_CORE_REPOS`, `ENV_DOCTOR_PYTHON_DEPS`, `ENV_DOCTOR_HELP_URL`, `ENV_DOCTOR_MIN_PYTHON_MINOR`, `ENV_DOCTOR_PYTHON_PIN`, `ENV_DOCTOR_PERSIST_PATH`, `ENV_DOCTOR_BOOT_AUDIT`, `ENV_DOCTOR_REPO`, `ENV_DOCTOR_HAPPY_PATH`).
 - **Strict Charsets**: Validates each value against safe character patterns. Any value containing unsafe shell characters (such as `;`, `&`, `` ` ``, `$`, `(`, `)`, `<`, `>`, `|`) is skipped and a warning is logged.
 - **Legacy Opt-In**: Sourcing the configuration file directly is only possible if you pass the explicit `--unsafe-source-config` flag.
 

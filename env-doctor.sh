@@ -66,6 +66,8 @@ ENV_DOCTOR_PYTHON_PIN="${ENV_DOCTOR_PYTHON_PIN:-}"
 ENV_DOCTOR_PERSIST_PATH="${ENV_DOCTOR_PERSIST_PATH:-false}"
 ENV_DOCTOR_BOOT_AUDIT="${ENV_DOCTOR_BOOT_AUDIT:-false}"
 ENV_DOCTOR_REPO="${ENV_DOCTOR_REPO:-}"
+ENV_DOCTOR_HAPPY_PATH="${ENV_DOCTOR_HAPPY_PATH:-auto}"
+HAPPY_PATH=""
 ISSUES=0
 WARNINGS=0
 JSON_LINES=()
@@ -214,6 +216,8 @@ _check_private_submodules() {
   local ssh_works=false
 
   # URLs that look intentionally non-public (avoid flagging every personal GitHub org)
+  local sub_urls
+  sub_urls="$(git config -f .gitmodules --get-regexp 'submodule\..*\.url' 2>/dev/null || true)"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     local url
@@ -222,7 +226,7 @@ _check_private_submodules() {
     if echo "$url" | grep -qiE '(/private/|/internal/|@private\.|[.]private\.)'; then
       private_submodules+=("$url")
     fi
-  done < <(git config -f .gitmodules --get-regexp 'submodule\..*\.url' 2>/dev/null || true)
+  done <<< "$sub_urls"
 
   if [[ ${#private_submodules[@]} -eq 0 ]]; then
     _pass "Private submodules" "none detected"
@@ -321,7 +325,7 @@ _load_config() {
 
       # Allowlist check
       case "$key" in
-        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL|ENV_DOCTOR_MIN_PYTHON_MINOR|ENV_DOCTOR_PYTHON_PIN|ENV_DOCTOR_PERSIST_PATH|ENV_DOCTOR_BOOT_AUDIT|ENV_DOCTOR_REPO)
+        BRAND|ENV_DOCTOR_CORE_REPOS|ENV_DOCTOR_PYTHON_DEPS|ENV_DOCTOR_HELP_URL|ENV_DOCTOR_MIN_PYTHON_MINOR|ENV_DOCTOR_PYTHON_PIN|ENV_DOCTOR_PERSIST_PATH|ENV_DOCTOR_BOOT_AUDIT|ENV_DOCTOR_REPO|ENV_DOCTOR_HAPPY_PATH)
           # Strip surrounding single or double quotes from value
           if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
             val="${BASH_REMATCH[1]}"
@@ -393,6 +397,11 @@ _load_config() {
               continue
             fi
             ENV_DOCTOR_REPO="$val"
+          elif [[ "$key" == "ENV_DOCTOR_HAPPY_PATH" ]]; then
+            case "$val" in
+              auto|rust-astro-vite|python) ENV_DOCTOR_HAPPY_PATH="$val" ;;
+              *) _warn "Config validation" "ENV_DOCTOR_HAPPY_PATH must be auto, rust-astro-vite, or python. Skipping." ;;
+            esac
           fi
           ;;
       esac
@@ -532,6 +541,7 @@ EOF
 # ENV_DOCTOR_PERSIST_PATH=false
 # ENV_DOCTOR_BOOT_AUDIT=false
 # ENV_DOCTOR_REPO=
+# ENV_DOCTOR_HAPPY_PATH=auto
 EOF
       exit 0 ;;
     --print-profile-template)
@@ -617,7 +627,7 @@ Safety & Product:
 
 Optional repo config (sourced if present): .env-doctor.conf in repo root
   BRAND, ENV_DOCTOR_CORE_REPOS, ENV_DOCTOR_PYTHON_DEPS, ENV_DOCTOR_HELP_URL,
-  ENV_DOCTOR_MIN_PYTHON_MINOR, ENV_DOCTOR_PYTHON_PIN, ENV_DOCTOR_PERSIST_PATH, ENV_DOCTOR_BOOT_AUDIT, ENV_DOCTOR_REPO
+  ENV_DOCTOR_MIN_PYTHON_MINOR, ENV_DOCTOR_PYTHON_PIN, ENV_DOCTOR_PERSIST_PATH, ENV_DOCTOR_BOOT_AUDIT, ENV_DOCTOR_REPO, ENV_DOCTOR_HAPPY_PATH
 
 Long forms:
   --init, --tier N, --dry-run, --json, --quiet, --submodules,
@@ -631,7 +641,8 @@ Short flags:
 Combined:  -it2 = --init --tier 2    -iqt0 = --init --quiet --tier 0
 
 Tiers:
-  0  Python 3.14+ venv + install from pyproject when present
+  0  Happy path. Default auto: rust + astro + vite unless the repo is Python-only.
+     Python-only repos still get the 3.14+ venv. rust-astro-vite does not npm-install Astro.
   1  + targeted submodule init (when .env-doctor.conf / scan enabled), dev extras, pre-commit
   2  + all submodules, native dev tools (apt on Ubuntu/Debian, brew on macOS)
   3  + session PATH, persistent profile (opt-in), boot audit (opt-in), Docker compose
@@ -757,6 +768,147 @@ _detect_project_types() {
   [[ -f Cargo.toml ]] && PROJECT_TYPES+=("rust")
   [[ -f go.mod ]] && PROJECT_TYPES+=("go")
   return 0
+}
+
+_repo_has_astro() {
+  [[ -f "$REPO_ROOT/astro.config.mjs" || -f "$REPO_ROOT/astro.config.ts" || -f "$REPO_ROOT/astro.config.js" ]] && return 0
+  [[ -f "$REPO_ROOT/package.json" ]] && grep -q '"astro"' "$REPO_ROOT/package.json" 2>/dev/null
+}
+
+# auto: Python-only repos stay on the Python boot. Everything else, including a
+# cold repo with no manifest, uses rust-astro-vite.
+_select_happy_path() {
+  case "${ENV_DOCTOR_HAPPY_PATH:-auto}" in
+    rust-astro-vite) HAPPY_PATH=rust-astro-vite ;;
+    python) HAPPY_PATH=python ;;
+    auto|"")
+      if _project_has python && ! _project_has rust && ! _repo_has_astro; then
+        HAPPY_PATH=python
+      else
+        HAPPY_PATH=rust-astro-vite
+      fi
+      ;;
+    *)
+      _warn "ENV_DOCTOR_HAPPY_PATH" "unknown value, using rust-astro-vite"
+      HAPPY_PATH=rust-astro-vite
+      ;;
+  esac
+}
+
+_check_node_floor() {
+  local ver major
+  if ! command -v node >/dev/null 2>&1; then
+    _warn "node" "not found (need 22+)"
+    return 0
+  fi
+  ver="$(node --version 2>&1 | head -1)"
+  major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  if [[ "$major" -ge 22 ]]; then
+    _pass "node" "$ver"
+  else
+    _warn "node" "$ver (need 22+)"
+  fi
+}
+
+_check_rust_astro_vite() {
+  _check_tool "rustc" "rustc --version" "rustc"
+  _check_tool "cargo" "cargo --version" "cargo"
+  _check_tool "rustfmt" "rustfmt --version" "rustfmt"
+  _check_tool "cargo-clippy" "cargo-clippy --version" "clippy"
+  _check_tool "rust-analyzer" "rust-analyzer --version" "rust-analyzer"
+  if command -v rustup >/dev/null 2>&1 && rustup component list --installed 2>/dev/null | grep -qx rust-src; then
+    _pass "rust-src" "installed"
+  else
+    _warn "rust-src" "not installed (rustup component add rust-src)"
+  fi
+  if command -v rustc >/dev/null 2>&1 && command -v rust-analyzer >/dev/null 2>&1; then
+    local rc ra
+    rc="$(rustc --version 2>/dev/null | awk '{print $2}')"
+    ra="$(rust-analyzer --version 2>/dev/null | awk '{print $2}')"
+    if [[ -n "$rc" && "$rc" == "$ra" ]]; then
+      _pass "rustc/rust-analyzer" "same version $rc"
+    else
+      _warn "rustc/rust-analyzer" "rustc $rc vs rust-analyzer $ra"
+    fi
+  fi
+  _check_tool "cargo-nextest" "cargo-nextest --version" "cargo-nextest"
+  _check_tool "cargo-watch" "cargo-watch --version" "cargo-watch"
+  _check_node_floor
+  _check_tool "npm" "npm --version" "npm"
+  if [[ -f "${CARGO_HOME:-$HOME/.cargo}/config.toml" ]]; then
+    _pass "cargo config" "present"
+  else
+    _warn "cargo config" "absent (~/.cargo/config.toml)"
+  fi
+  _info "Astro" "not installed by the doctor (npm create astro@7.4.5 when creating the app; do not add a second vite)"
+}
+
+_init_rust_astro_vite_tier0() {
+  _info "Tier 0" "rust-astro-vite"
+  if [[ "$DRY_RUN" == "true" ]]; then
+    _info "Would run" "rustup update stable && rustup default stable"
+    _info "Would run" "rustup component add rustfmt clippy rust-src rust-analyzer"
+    command -v cargo-nextest >/dev/null 2>&1 || _info "Would run" "install cargo-nextest from https://get.nexte.st/latest/linux"
+    command -v cargo-watch >/dev/null 2>&1 || _info "Would run" "cargo install cargo-watch --locked"
+    [[ -f "${CARGO_HOME:-$HOME/.cargo}/config.toml" ]] || _info "Would run" "write ~/.cargo/config.toml"
+    _info "Would run" "cargo check of a throwaway bin"
+    _info "Astro" "not installed (npm create astro@7.4.5 when creating the app)"
+    _pass "Tier 0 init" "planned (dry-run)"
+    return 0
+  fi
+  if [[ "$ENV_DOCTOR_ASSUME_YES" != "true" ]]; then
+    _warn "Consent required" "rust-astro-vite init needs --yes (or -y). Preview with --dry-run."
+    return 0
+  fi
+  if ! command -v rustup >/dev/null 2>&1; then
+    _warn "rustup" "not on PATH. Install from https://rustup.rs, then re-run."
+    return 0
+  fi
+  rustup update stable
+  rustup default stable
+  rustup component add rustfmt clippy rust-src rust-analyzer
+  mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+  if ! command -v cargo-nextest >/dev/null 2>&1; then
+    local tmp
+    tmp="$(mktemp -d)"
+    if curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$tmp" --no-same-owner; then
+      install -m 755 "$tmp/cargo-nextest" "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-nextest"
+    else
+      _warn "cargo-nextest" "install failed"
+    fi
+    rm -rf "$tmp"
+  fi
+  if ! command -v cargo-watch >/dev/null 2>&1; then
+    cargo install cargo-watch --locked || _warn "cargo-watch" "install failed"
+  fi
+  local cfg="${CARGO_HOME:-$HOME/.cargo}/config.toml"
+  if [[ ! -f "$cfg" ]]; then
+    cat > "$cfg" << 'EOF'
+[build]
+incremental = true
+
+[term]
+color = "always"
+
+[net]
+git-fetch-with-cli = true
+retry = 3
+EOF
+  fi
+  if [[ -f "$HOME/.bashrc" ]] && grep -q 'RUST_BACKTRACE' "$HOME/.bashrc"; then
+    :
+  else
+    printf '\nexport RUST_BACKTRACE=1\nexport CARGO_TERM_COLOR=always\n' >> "$HOME/.bashrc"
+  fi
+  local smoke
+  smoke="$(mktemp -d)"
+  if cargo new "$smoke/hello" --bin --quiet && cargo check --manifest-path "$smoke/hello/Cargo.toml" --quiet; then
+    _pass "compile" "throwaway bin"
+  else
+    _warn "compile" "cargo check of a throwaway bin failed"
+  fi
+  rm -rf "$smoke"
+  _pass "Tier 0 init" "rust-astro-vite"
 }
 
 _check_zen_teaser() {
@@ -1124,6 +1276,11 @@ phase2_tooling() {
   _head "Phase 2: Tooling Discovery"
 
   _detect_project_types
+  _select_happy_path
+  _info "Happy path" "$HAPPY_PATH"
+  if [[ "$HAPPY_PATH" == rust-astro-vite ]]; then
+    _check_rust_astro_vite
+  fi
   if [[ ${#PROJECT_TYPES[@]} -eq 0 ]]; then
     _info "Project manifests" "none at repo root (pyproject.toml, package.json, Cargo.toml, go.mod)"
   else
@@ -1365,6 +1522,8 @@ phase3_git() {
     local total=0 initialized=0 uninitialized=0 modified=0
     local core_subs=() other_subs=()
     local core_repos="${ENV_DOCTOR_CORE_REPOS:-}"
+    local sub_status
+    sub_status="$(git submodule status 2>/dev/null || true)"
 
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
@@ -1384,7 +1543,7 @@ phase3_git() {
       else
         other_subs+=("$path")
       fi
-    done < <(git submodule status 2>/dev/null || true)
+    done <<< "$sub_status"
 
     _pass "Submodules total" "$total"
     _info "  initialized"    "$initialized"
@@ -1407,6 +1566,8 @@ phase3_git() {
     local orphans=0
     local gitmod_paths
     gitmod_paths="$(grep 'path = ' .gitmodules 2>/dev/null | sed 's/.*path = //' || true)"
+    local gitlinks
+    gitlinks="$(git ls-files -s 2>/dev/null | grep "^160000" || true)"
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       local p
@@ -1415,7 +1576,7 @@ phase3_git() {
       if ! echo "$gitmod_paths" | grep -qFx "$p"; then
         orphans=$((orphans+1))
       fi
-    done < <(git ls-files -s 2>/dev/null | grep "^160000" || true)
+    done <<< "$gitlinks"
 
     if [[ "$orphans" -gt 0 ]]; then
       _fail "Orphan gitlinks" "$orphans (in index but not in .gitmodules)"
@@ -1493,7 +1654,8 @@ _check_github_git_urls() {
     _pass "git remote" "origin configured"
   fi
 
-  local key val
+  local key val instead_of
+  instead_of="$(git config --global --get-regexp '^url\..*\.insteadOf$' 2>/dev/null || true)"
   while read -r key val; do
     [[ -z "$key" ]] && continue
     # Poison rewrites SSH → HTTPS (url.https://github.com/.insteadof git@github.com:).
@@ -1502,7 +1664,7 @@ _check_github_git_urls() {
       _warn "git config" "HTTPS override poison detected ($key)"
       _suggest_dinit_auth
     fi
-  done < <(git config --global --get-regexp '^url\..*\.insteadOf$' 2>/dev/null || true)
+  done <<< "$instead_of"
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1517,6 +1679,8 @@ phase4_creds() {
   if [[ -f .env ]]; then
     _pass ".env" "exists"
     local missing_keys=()
+    local example_keys
+    example_keys="$(grep -E '^[A-Z_]+=' env.example 2>/dev/null || true)"
     while IFS= read -r line; do
       local key
       key="$(echo "$line" | grep -oE '^[A-Z_]+' || true)"
@@ -1524,7 +1688,7 @@ phase4_creds() {
       if ! grep -q "^${key}=" .env 2>/dev/null; then
         missing_keys+=("$key")
       fi
-    done < <(grep -E '^[A-Z_]+=' env.example 2>/dev/null || true)
+    done <<< "$example_keys"
 
     if [[ ${#missing_keys[@]} -gt 0 ]]; then
       _warn ".env missing keys" "${#missing_keys[@]} keys not set (vs env.example)"
@@ -1597,6 +1761,10 @@ phase5_init() {
 
   # ── Tier 0: Venv + core deps ──
   if [[ "$INIT_TIER" -ge 0 ]]; then
+    if [[ "${HAPPY_PATH:-}" == rust-astro-vite ]]; then
+      _init_rust_astro_vite_tier0
+    fi
+    if [[ "${HAPPY_PATH:-python}" == python ]] || _project_has python; then
     _info "Tier 0" "Python venv + core deps"
     local need_py=false py_ver=""
     if [[ -z "${BEST_PYTHON:-}" ]]; then
@@ -1673,6 +1841,7 @@ phase5_init() {
       fi
       _pass "Tier 0 init" "venv + core deps installed"
     fi
+    fi
   fi
 
   # ── Tier 1: Core submodules + dev extras + pre-commit ──
@@ -1683,14 +1852,16 @@ phase5_init() {
       _info "Tier 1 submodules" "skipped (--with-submodules to include submodule init)"
     else
       local -a core_paths=()
+      local sub_paths=""
       if [[ -n "${ENV_DOCTOR_CORE_REPOS:-}" ]]; then
+        sub_paths="$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)"
         while IFS= read -r cl; do
           [[ -z "$cl" ]] && continue
           local p
           p="$(_git_config_regexp_value "$cl")"
           echo "$p" | grep -qE "(${ENV_DOCTOR_CORE_REPOS})$" || continue
           core_paths+=("$p")
-        done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
+        done <<< "$sub_paths"
       fi
 
       if [[ "$DRY_RUN" == "true" ]]; then

@@ -165,6 +165,42 @@ fi
 rm -f "$text_out"
 rm -rf "$rust_repo"
 
+# ── rust-astro-vite is the default happy path for a non-Python repo ─────────
+rav_repo="$(make_fixture_repo rav bash -c 'printf "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n" > Cargo.toml')"
+text_out="$(mktemp)"
+set +e
+run_doctor "$rav_repo" -it0n >"$text_out" 2>&1
+rav_code=$?
+set -e
+assert_eq "rust-astro-vite tier0 dry-run exits 0" "0" "$rav_code"
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -q "rustup update stable" "$text_out"; then
+  echo "FAIL: rust-astro-vite dry-run should plan rustup update stable" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+if grep -q "pip install -e \." "$text_out"; then
+  echo "FAIL: rust-astro-vite dry-run must not plan pip install -e ." >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out"
+rm -rf "$rav_repo"
+
+cold_repo="$(make_fixture_repo cold-boot bash -c 'true')"
+text_out="$(mktemp)"
+set +e
+run_doctor "$cold_repo" -it0n >"$text_out" 2>&1
+cold_code=$?
+set -e
+assert_eq "cold repo tier0 dry-run exits 0" "0" "$cold_code"
+TESTS_RUN=$((TESTS_RUN + 1))
+if ! grep -q "rust-astro-vite" "$text_out"; then
+  echo "FAIL: cold repo should select rust-astro-vite" >&2
+  TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+rm -f "$text_out"
+rm -rf "$cold_repo"
+
 # ── Bug 3b: requirements.txt-only repo --init dry-run uses pip install -r ────
 # Trigger: Python project with only requirements.txt (no pyproject.toml/setup.py)
 # must use 'pip install -r requirements.txt', not 'pip install -e .'.

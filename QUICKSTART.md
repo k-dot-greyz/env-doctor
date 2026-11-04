@@ -18,7 +18,26 @@ If your project uses git submodules and you want to scan their initialization st
 bash env-doctor.sh --with-submodules
 ```
 
-## 2. Customize for Your Project
+## 2. Happy path
+
+The default boot is Rust + Astro + Vite, unless the repo is Python-only (`pyproject.toml` or `requirements.txt` and no `Cargo.toml`).
+
+```bash
+bash env-doctor.sh
+bash env-doctor.sh --init --tier 0 --dry-run
+bash env-doctor.sh --init --tier 0 --yes
+```
+
+`--yes` runs `rustup update stable`, the rustfmt/clippy/rust-src/rust-analyzer components, cargo-nextest, `cargo install cargo-watch --locked`, and a throwaway `cargo check`. It does not install Astro or a second Vite. Create the app later with `npm create astro@7.4.5`.
+
+Force it, or force Python, in `.env-doctor.conf`:
+
+```bash
+ENV_DOCTOR_HAPPY_PATH=rust-astro-vite
+# ENV_DOCTOR_HAPPY_PATH=python
+```
+
+## 3. Customize for Your Project
 
 To tailor the checks to your project's specific requirements (such as required Python dependencies, core submodules, or a custom help URL):
 
@@ -37,7 +56,7 @@ To tailor the checks to your project's specific requirements (such as required P
 
 3. Run the audit again. Your custom brand banner and checks will be applied immediately.
 
-## 3. Auto-Heal Your Environment
+## 4. Auto-Heal Your Environment
 
 If Env Doctor detects missing virtual environments or uninstalled Python dependencies, you can progressively initialize the environment using the progressive init engine:
 
@@ -78,7 +97,7 @@ Tier 2 installs native packages via `apt` on Linux (ripgrep, shellcheck, yamllin
 
 > **Platform reality:** Tier 2 native installs are **apt-only** today (Ubuntu/Debian/Mint). Fedora, Arch, and other distros: audit + tier 0–1 + tier 3 work; use manual package install or track [follow-up issues](docs/FOLLOW_UPS.md). See [`docs/STATUS.md`](docs/STATUS.md).
 
-## 4. Align Your AI Coding Agents
+## 5. Align Your AI Coding Agents
 
 AI coding agents (such as Cursor, Claude Code, or Copilot) can get stuck in infinite loops when local environments are broken. Give them auto-healing capabilities:
 
@@ -99,7 +118,7 @@ bash env-doctor.sh --init --tier 3 --yes   # 3. heal (human consent required)
 
 Planned: distro-specific agent quickstarts, cloud-agent bootstrap, and JSON-driven tier selection — see [`docs/FOLLOW_UPS.md`](docs/FOLLOW_UPS.md).
 
-## 5. Integrate with Git Hooks and CI/CD
+## 6. Integrate with Git Hooks and CI/CD
 
 Check the `templates/` directory for ready-to-use integration configurations:
 - **Git Hooks**: Copy `templates/pre-commit-config.yaml` to your `.pre-commit-config.yaml` to run fast environment smoke checks before every commit.

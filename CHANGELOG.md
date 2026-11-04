@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Default happy path `rust-astro-vite` (`ENV_DOCTOR_HAPPY_PATH=auto`). Cold repos and Rust/Astro repos audit rustc, rustfmt, clippy, rust-analyzer, rust-src, cargo-nextest, cargo-watch, and Node 22. `--init --tier 0 --yes` applies that boot. Astro is not installed. Python-only repos are unchanged.
+- That boot no longer aborts the doctor when `rustup` or the nextest download fails, does not install Python over a Rust or Astro repo, and writes `RUST_BACKTRACE` once.
 - Audit loops that used process substitution now read into a variable first, so a missing git config does not abort the run.
 
 - `scripts/env-config.sh`, profile/systemd templates, `--print-profile-template`.

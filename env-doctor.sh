@@ -851,6 +851,11 @@ _init_rust_astro_vite_tier0() {
     command -v cargo-nextest >/dev/null 2>&1 || _info "Would run" "install cargo-nextest from https://get.nexte.st/latest/linux"
     command -v cargo-watch >/dev/null 2>&1 || _info "Would run" "cargo install cargo-watch --locked"
     [[ -f "${CARGO_HOME:-$HOME/.cargo}/config.toml" ]] || _info "Would run" "write ~/.cargo/config.toml"
+    if [[ -f "$HOME/.bashrc" ]] && grep -q 'RUST_BACKTRACE' "$HOME/.bashrc"; then
+      :
+    else
+      _info "Would run" "append RUST_BACKTRACE=1 to ~/.bashrc"
+    fi
     _info "Would run" "cargo check of a throwaway bin"
     _info "Astro" "not installed (npm create astro@7.4.5 when creating the app)"
     _pass "Tier 0 init" "planned (dry-run)"
@@ -864,15 +869,22 @@ _init_rust_astro_vite_tier0() {
     _warn "rustup" "not on PATH. Install from https://rustup.rs, then re-run."
     return 0
   fi
-  rustup update stable
-  rustup default stable
-  rustup component add rustfmt clippy rust-src rust-analyzer
-  mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+  local cargo_bin cfg tmp smoke
+  cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+  rustup update stable || _warn "rustup" "update stable failed"
+  rustup default stable || _warn "rustup" "default stable failed"
+  rustup component add rustfmt clippy rust-src rust-analyzer || _warn "rustup" "component add failed"
+  mkdir -p "$cargo_bin" || _warn "cargo bin" "could not create $cargo_bin"
+  case ":${PATH}:" in
+    *":${cargo_bin}:"*) ;;
+    *) PATH="${cargo_bin}:${PATH}"; export PATH ;;
+  esac
   if ! command -v cargo-nextest >/dev/null 2>&1; then
-    local tmp
     tmp="$(mktemp -d)"
-    if curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$tmp" --no-same-owner; then
-      install -m 755 "$tmp/cargo-nextest" "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-nextest"
+    if curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "$tmp" --no-same-owner \
+      && [[ -f "$tmp/cargo-nextest" ]] \
+      && install -m 755 "$tmp/cargo-nextest" "${cargo_bin}/cargo-nextest"; then
+      :
     else
       _warn "cargo-nextest" "install failed"
     fi
@@ -881,9 +893,11 @@ _init_rust_astro_vite_tier0() {
   if ! command -v cargo-watch >/dev/null 2>&1; then
     cargo install cargo-watch --locked || _warn "cargo-watch" "install failed"
   fi
-  local cfg="${CARGO_HOME:-$HOME/.cargo}/config.toml"
+  cfg="${CARGO_HOME:-$HOME/.cargo}/config.toml"
   if [[ ! -f "$cfg" ]]; then
-    cat > "$cfg" << 'EOF'
+    mkdir -p "$(dirname "$cfg")" || _warn "cargo config" "could not create $(dirname "$cfg")"
+    if [[ ! -f "$cfg" ]]; then
+      cat > "$cfg" << 'EOF'
 [build]
 incremental = true
 
@@ -894,13 +908,16 @@ color = "always"
 git-fetch-with-cli = true
 retry = 3
 EOF
+    fi
   fi
   if [[ -f "$HOME/.bashrc" ]] && grep -q 'RUST_BACKTRACE' "$HOME/.bashrc"; then
     :
   else
-    printf '\nexport RUST_BACKTRACE=1\nexport CARGO_TERM_COLOR=always\n' >> "$HOME/.bashrc"
+    mkdir -p "$HOME"
+    if ! printf '\n# >>> env-doctor rust >>>\nexport RUST_BACKTRACE=1\nexport CARGO_TERM_COLOR=always\n# <<< env-doctor rust <<<\n' >> "$HOME/.bashrc"; then
+      _warn "bashrc" "could not append RUST_BACKTRACE"
+    fi
   fi
-  local smoke
   smoke="$(mktemp -d)"
   if cargo new "$smoke/hello" --bin --quiet && cargo check --manifest-path "$smoke/hello/Cargo.toml" --quiet; then
     _pass "compile" "throwaway bin"
@@ -1157,6 +1174,8 @@ if [[ -d \"\${ENV_DOCTOR_REPO}/.venv\" ]]; then
   [[ -f \"\${_ed_bindir}/activate\" ]] && source \"\${_ed_bindir}/activate\"
 fi
 ${_HYDRATE_PROFILE_END}"
+  local targets
+  targets="$(_hydrate_profile_targets)"
   while IFS= read -r target; do
     [[ -z "$target" ]] && continue
     [[ -f "$target" ]] || touch "$target"
@@ -1166,7 +1185,7 @@ ${_HYDRATE_PROFILE_END}"
     fi
     printf '\n%s\n' "$block" >>"$target"
     _pass "PATH (persistent)" "appended to $(basename "$target")"
-  done < <(_hydrate_profile_targets)
+  done <<< "$targets"
 }
 
 _hydrate_boot_audit() {
@@ -1764,7 +1783,9 @@ phase5_init() {
     if [[ "${HAPPY_PATH:-}" == rust-astro-vite ]]; then
       _init_rust_astro_vite_tier0
     fi
-    if [[ "${HAPPY_PATH:-python}" == python ]] || _project_has python; then
+    # Python tier 0 only when that is the selected path. A repo that also has
+    # Cargo.toml or Astro stays on rust-astro-vite and must not abort on Python.
+    if [[ "${HAPPY_PATH:-python}" == python ]]; then
     _info "Tier 0" "Python venv + core deps"
     local need_py=false py_ver=""
     if [[ -z "${BEST_PYTHON:-}" ]]; then

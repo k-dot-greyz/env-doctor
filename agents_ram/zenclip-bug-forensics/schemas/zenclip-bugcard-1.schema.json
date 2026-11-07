@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/k-dot-greyz/env-doctor/schemas/zenclip-bugcard-1.schema.json",
+  "title": "zenclip-bugcard/1",
+  "description": "Idempotent bug report companion card (WIP). See agents_ram/zenclip-bug-forensics/WHITEPAPER.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_id",
+    "identity_fingerprint",
+    "created_at",
+    "revision",
+    "triage",
+    "repro",
+    "hydration",
+    "artifacts",
+    "redaction"
+  ],
+  "properties": {
+    "schema": {
+      "const": "zenclip-bugcard/1"
+    },
+    "report_id": {
+      "type": "string",
+      "pattern": "^zc_[A-Za-z0-9_-]{16,24}$"
+    },
+    "identity_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title_suggested", "severity_user", "bug_class", "product_surface"],
+      "properties": {
+        "title_suggested": { "type": "string", "maxLength": 200 },
+        "severity_user": {
+          "enum": ["unusable", "sometimes", "minor"]
+        },
+        "bug_class": {
+          "type": "string",
+          "examples": ["github.labels_ui", "generic.ui", "agent.failure"]
+        },
+        "product_surface": {
+          "enum": [
+            "cursor_ide",
+            "cursor_cli",
+            "background_agent",
+            "bugbot",
+            "other"
+          ]
+        },
+        "forum_template_version": { "type": "string" }
+      }
+    },
+    "repro": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps", "expected", "actual", "frequency"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 20
+        },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "frequency": {
+          "enum": ["always", "often", "sometimes", "once"]
+        },
+        "user_note": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "hydration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vectors_run", "vectors_failed", "records"],
+      "properties": {
+        "vectors_run": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "vectors_failed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["vector", "reason"],
+            "properties": {
+              "vector": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "records": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hydration_record" }
+        }
+      }
+    },
+    "cursor_escalation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": { "type": ["string", "null"] },
+        "agent_bc_id": { "type": ["string", "null"] },
+        "privacy_mode": { "type": ["boolean", "null"] },
+        "share_data_repro_offer": { "type": "string" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forum_markdown": { "type": "string" },
+        "email_subject": { "type": "string" },
+        "clipboard_mime": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules_applied", "secrets_detected"],
+      "properties": {
+        "rules_applied": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "secrets_detected": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hydration_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "key", "value"],
+      "properties": {
+        "type": {
+          "enum": ["section", "pass", "warn", "fail", "info", "status"]
+        },
+        "key": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "media_type", "sha256", "path"],
+      "properties": {
+        "role": {
+          "enum": [
+            "screenshot_primary",
+            "screenshot_crop",
+            "infograph",
+            "bundle_json",
+            "log_tail",
+            "overflow_blob"
+          ]
+        },
+        "media_type": { "type": "string" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "path": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

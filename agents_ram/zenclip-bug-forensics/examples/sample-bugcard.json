@@ -1,0 +1,62 @@
+{
+  "schema": "zenclip-bugcard/1",
+  "report_id": "zc_EXAMPLE00000000000001",
+  "identity_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "created_at": "2026-10-08T22:00:00Z",
+  "updated_at": "2026-10-08T22:00:00Z",
+  "revision": 1,
+  "triage": {
+    "title_suggested": "[Bug][IDE][GitHub] Cannot create PR labels from UI",
+    "severity_user": "sometimes",
+    "bug_class": "github.labels_ui",
+    "product_surface": "cursor_ide",
+    "forum_template_version": "2026-04"
+  },
+  "repro": {
+    "steps": [
+      "Open GitHub Pull Requests view for org/repo",
+      "Open PR #42",
+      "Click Labels control",
+      "Attempt to create label 'needs-triage'"
+    ],
+    "expected": "Label picker allows create and apply like github.com",
+    "actual": "No create path; shortcut unreliable",
+    "frequency": "always",
+    "user_note": "gh pr edit --add-label works"
+  },
+  "hydration": {
+    "vectors_run": ["host.os", "git.workspace", "github.labels_api"],
+    "vectors_failed": [
+      { "vector": "logs.console", "reason": "extension_not_available_in_cli_mvp" }
+    ],
+    "records": [
+      { "type": "section", "key": "GitHub labels", "value": "" },
+      { "type": "fail", "key": "create_label_ui", "value": "no control path" },
+      { "type": "pass", "key": "labels_via_gh_api", "value": "apply works" }
+    ]
+  },
+  "cursor_escalation": {
+    "request_id": null,
+    "agent_bc_id": null,
+    "privacy_mode": true,
+    "share_data_repro_offer": "Repro with Share Data + new Request ID on request"
+  },
+  "artifacts": [
+    {
+      "role": "bundle_json",
+      "media_type": "application/json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "path": "zenclip-bugcard.json",
+      "bytes": 0
+    }
+  ],
+  "exports": {
+    "forum_markdown": "exports/forum_post.md",
+    "email_subject": "Bug: GitHub label UI in Cursor IDE",
+    "clipboard_mime": ["text/plain", "text/markdown"]
+  },
+  "redaction": {
+    "rules_applied": ["strip_gh_token", "truncate_paths_home"],
+    "secrets_detected": 0
+  }
+}

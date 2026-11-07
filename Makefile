@@ -22,7 +22,7 @@ test-pw:
 	npm run test:pw
 
 lint:
-	shellcheck env-doctor.sh release.sh scripts/*.sh tests/*.sh
+	shellcheck env-doctor.sh release.sh scripts/*.sh tests/*.sh tests/zenclip/*.sh
 
 ci: lint test
 

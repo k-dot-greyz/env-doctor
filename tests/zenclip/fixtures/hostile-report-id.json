@@ -1,0 +1,36 @@
+{
+  "schema": "zenclip-bugcard/1",
+  "report_id": "zc_../../../etc/passwd",
+  "identity_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "created_at": "2026-10-08T22:00:00Z",
+  "revision": 1,
+  "triage": {
+    "title_suggested": "Path traversal in report_id",
+    "severity_user": "minor",
+    "bug_class": "generic.ui",
+    "product_surface": "other"
+  },
+  "repro": {
+    "steps": ["compile with hostile report_id"],
+    "expected": "rejected before store path join",
+    "actual": "n/a",
+    "frequency": "once"
+  },
+  "hydration": {
+    "vectors_run": [],
+    "vectors_failed": [],
+    "records": []
+  },
+  "artifacts": [
+    {
+      "role": "bundle_json",
+      "media_type": "application/json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "path": "zenclip-bugcard.json"
+    }
+  ],
+  "redaction": {
+    "rules_applied": [],
+    "secrets_detected": 0
+  }
+}

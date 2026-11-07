@@ -1,0 +1,42 @@
+{
+  "schema": "zenclip-bugcard/1",
+  "report_id": "zc_TOKENLEAK000000000001",
+  "identity_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "created_at": "2026-10-08T22:00:00Z",
+  "revision": 1,
+  "triage": {
+    "title_suggested": "Log vector leaked token",
+    "severity_user": "unusable",
+    "bug_class": "github.labels_ui",
+    "product_surface": "cursor_ide"
+  },
+  "repro": {
+    "steps": ["Run gh with malformed output"],
+    "expected": "redaction blocks token before card",
+    "actual": "token in hydration record",
+    "frequency": "always"
+  },
+  "hydration": {
+    "vectors_run": ["logs.console"],
+    "vectors_failed": [],
+    "records": [
+      {
+        "type": "fail",
+        "key": "gh_stderr",
+        "value": "Error: bad auth ghp_abcdefghijklmnopqrstuvwxyz1234567890AB"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "role": "bundle_json",
+      "media_type": "application/json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "path": "zenclip-bugcard.json"
+    }
+  ],
+  "redaction": {
+    "rules_applied": ["strip_gh_token"],
+    "secrets_detected": 0
+  }
+}
